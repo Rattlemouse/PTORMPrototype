@@ -1,0 +1,47 @@
+﻿<#@ template language="C#" #>
+<#@ assembly name="System.Core" #>
+<#@ import namespace="System.Linq" #>
+<#@ import namespace="System.Text" #>
+<#@ import namespace="System.Collections.Generic" #>
+using System;
+<# for(var i = 0; i < 20; i++) {#>
+public class BaseClass_<#=i#>
+{
+	public Guid ObjectId { get;set;}
+	public string BaseProperty { get;set;}
+}
+
+	<# for(var d = 0; d < 500; d++) {#>
+		public class Derived<#=i#>_<#=d#> : BaseClass_<#=i#>
+		{
+			<# for(var j = 0; j < 15; j++) {#>
+			public <#=GenType()#> DerivedProp<#=i#>_<#=d#>_<#=j#> { get; set;}
+			<#}#>
+
+			<# 
+	  
+	  if(i < 10)
+	  for(var j = 0; j < 5; j++) {#>
+			public <#=GenNavType(i)#> NavProp<#=i#>_<#=d#>_<#=j#> { get; set;}
+			<#}#>
+		}
+	<#}#>
+
+<#}#>
+
+<#+
+
+string[] types  = new []  { "int", "string" };
+Random rnd = new Random();
+string GenType()
+{
+	return types[rnd.Next(0, types.Length)];
+}
+
+string GenNavType(int i)
+{
+	var val = rnd.Next(10, 20); 	
+	return "BaseClass_" + val;
+}
+#>
+
