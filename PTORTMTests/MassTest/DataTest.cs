@@ -22,7 +22,7 @@ namespace PTORTMTests.MassTest
         [SetUp]
         public void Setup()
         {
-            var createTable = SqlConnection.CreateCommand();
+           /* var createTable = SqlConnection.CreateCommand();
             createTable.CommandText =
                 @"CREATE TABLE FirstClass (ObjectId uniqueidentifier PRIMARY KEY NOT NULL, 
 _dscr int NOT NULL, 
@@ -57,7 +57,7 @@ FP6 nvarchar(255) NOT NULL,
 FP7 nvarchar(255) NOT NULL,
 FP8 nvarchar(255) NOT NULL);
 ";
-            createTable.ExecuteNonQuery();
+            createTable.ExecuteNonQuery();*/
         }
 
         [TearDown]
@@ -94,20 +94,31 @@ FP8 nvarchar(255) NOT NULL);
         [Test]
         public void Test()
         {
-            var thirdGuids = LoadTable("ThirdClass", (row, i) => { });
-            var secondGuids = LoadTable("SecondClass", (row, i) => { row["Third"] = thirdGuids[i]; });
-            LoadTable("FirstClass", (row, i) => { row["Second"] = secondGuids[i]; });            
             var mappings = FluentConfiguration.Start().DefaultDiscriminatorColumnName("_dscr")
                 .DefaultIdProperty(IdentityField)
                 .AddTypeAuto<FirstClass>()
                 .AddTypeAuto<SecondClass>()
                 .AddTypeAuto<ThirdClass>().GenerateTypeMappings();
+            
             var provider = new TestProvider(mappings);
+            var queryBuilder = new QueryBuilder(provider);
+            var createTable = SqlConnection.CreateCommand();
+            createTable.CommandText = string.Concat(
+                queryBuilder.GetCreateTable(typeof(FirstClass)),
+                queryBuilder.GetCreateTable(typeof(SecondClass)),
+                queryBuilder.GetCreateTable(typeof(ThirdClass))
+            );
+            createTable.ExecuteNonQuery();
+            var thirdGuids = LoadTable("ThirdClass", (row, i) => { });
+            var secondGuids = LoadTable("SecondClass", (row, i) => { row["Third"] = thirdGuids[i]; });
+            LoadTable("FirstClass", (row, i) => { row["Second"] = secondGuids[i]; });            
+            
+           
 
             var stopWatch = new Stopwatch();
             stopWatch.Start();
 
-            var queryBuilder = new QueryBuilder(provider);
+          
             var plan = queryBuilder.GetQuery("FirstClass", new string[0], new[] { "Second.Third" });
             Debug.WriteLine(plan.SqlString);
 

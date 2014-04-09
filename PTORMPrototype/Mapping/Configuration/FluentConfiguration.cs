@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Data;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
@@ -83,10 +84,20 @@ namespace PTORMPrototype.Mapping.Configuration
                 var type = mappingInfo.Type;
                 var myTable = new TableInfo
                 {
-                    Name = type.Name,
-                    DiscriminatorColumn = _defaultDiscriminatorColumnName,
-                    IdentityColumn = mappingInfo.IdentityField ?? _defaultIdProperty
+                    Name = type.Name,                    
+                    IdentityColumn = new PropertyMapping
+                    {
+                        ColumnName = mappingInfo.IdentityField ?? _defaultIdProperty,
+                        DeclaredType = mappingInfo,
+                        Name = mappingInfo.IdentityField,
+                        SqlType = GetSqlType(type.GetProperty(mappingInfo.IdentityField).PropertyType)
+                    } 
                 };
+                myTable.IdentityColumn.Table = myTable;
+                if (type.BaseType == typeof (object))
+                {
+                    myTable.DiscriminatorColumn = _defaultDiscriminatorColumnName;
+                }
                 mappingInfo.Tables.Add(myTable);
             }
             foreach (var typeConfig in _typeConfigs)
@@ -104,8 +115,8 @@ namespace PTORMPrototype.Mapping.Configuration
                             Table = myTable,
                             ColumnName = property.Name,
                             Name = property.Name,
-                            DeclaredType = mappingInfo,
-                            Nullable = type.IsNullable()
+                            DeclaredType = mappingInfo,                            
+                            SqlType = GetSqlType(propertyType)
                         };
                         myTable.Columns.Add(propertyMapping);
                     }
@@ -123,19 +134,23 @@ namespace PTORMPrototype.Mapping.Configuration
                         }
                         else if (propertyType.IsCollection())
                         {
+                            var idType = type.GetProperty(mappingInfo.IdentityField).PropertyType;
+                            //todo: bugg
                             var childTable = navPropertyMapping.TargetType.Tables.First();
                             navPropertyMapping.Table = childTable;
                             //todo: delay setting names
                             navPropertyMapping.ColumnName = string.Format("{0}_{1}", type.Name, property.Name);
-                            navPropertyMapping.Nullable = false;
                             navPropertyMapping.Host = ReferenceHost.Child;
+                            navPropertyMapping.SqlType = GetSqlType(idType);
                             childTable.Columns.Add(navPropertyMapping);
                         }
                         else
                         {
+                            var targetClrType = navPropertyMapping.TargetType.Type;
+                            var idType = targetClrType.GetProperty(navPropertyMapping.TargetType.IdentityField).PropertyType;
+                            navPropertyMapping.SqlType = new SqlType(idType.GetSqlType(), true);
                             navPropertyMapping.Table = myTable;
-                            navPropertyMapping.ColumnName = property.Name;
-                            navPropertyMapping.Nullable = true;
+                            navPropertyMapping.ColumnName = property.Name;                            
                             navPropertyMapping.Host = ReferenceHost.Parent;
                             myTable.Columns.Add(navPropertyMapping);
                         }
@@ -162,6 +177,22 @@ namespace PTORMPrototype.Mapping.Configuration
                 }                
             });
             return typeMappings;
+        }
+
+        private SqlType GetSqlType(Type propertyType)
+        {
+            var nullable = propertyType.TryExtractFromNullable(out propertyType);
+            var sqlType = propertyType.GetSqlType();
+            //todo: think of limits
+            /*if (sqlType == SqlDbType.Decimal)
+            {
+                return new SqlType(sqlType, nullable);    
+            }
+            else if (sqlType == SqlDbType.NVarChar)
+            {
+                return new SqlType(sqlType, nullable);    
+            }*/
+            return new SqlType(sqlType, nullable);
         }
     }
 }

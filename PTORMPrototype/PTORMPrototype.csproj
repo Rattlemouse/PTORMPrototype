@@ -50,6 +50,7 @@
     <Compile Include="Mapping\Configuration\FluentConfiguration.cs" />
     <Compile Include="Mapping\Configuration\HierarchyInfo.cs" />
     <Compile Include="Mapping\Configuration\NavigationPropertyMapping.cs" />
+    <Compile Include="Mapping\Configuration\SqlType.cs" />
     <Compile Include="Mapping\Configuration\TypeMappingConfig.cs" />
     <Compile Include="Mapping\CreatingDelegate.cs" />
     <Compile Include="Mapping\FillingDelegate.cs" />

@@ -29,6 +29,17 @@ namespace PTORTMTests
         }
 
         [Test]
+        public void TestCreateTableQuery()
+        {        
+            var types = FluentConfiguration.Start().DefaultIdProperty(IdentityField).DefaultDiscriminatorColumnName("_dscr").AddType<BaseClass>(z => z.AllProperties()).GenerateTypeMappings();
+            var provider = new TestProvider(types);
+            var queryBuilder = new QueryBuilder(provider);
+            var result = queryBuilder.GetCreateTable(typeof(BaseClass));
+            Assert.AreEqual("CREATE TABLE [BaseClass] ([ObjectId] UNIQUEIDENTIFIER NOT NULL PRIMARY KEY, [_dscr] INT NOT NULL, [Prop1] INT NOT NULL);", result);            
+        }
+
+
+        [Test]
         public void TestSimpleQueryWithDerived()
         {
             const string path = "Prop1";

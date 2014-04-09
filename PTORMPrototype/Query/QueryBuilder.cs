@@ -105,7 +105,7 @@ namespace PTORMPrototype.Query
             {                
                 var secondContext = GetTableContext(table, "T");
                 SelectAll(secondContext);
-                InnerJoin(mainTableContext, secondContext, table.IdentityColumn, table.IdentityColumn);
+                InnerJoin(mainTableContext, secondContext, table.IdentityColumn.ColumnName, table.IdentityColumn.ColumnName);
             }
             foreach (var s in paths)
             {
@@ -133,7 +133,7 @@ namespace PTORMPrototype.Query
                 var tableInfo = targetType.Tables.First();
                 var nextcontext = GetTableContext(tableInfo, "S");
                 SelectAll(nextcontext);
-                LeftOuterJoin(context, nextcontext, navProperty.ColumnName, tableInfo.IdentityColumn);                
+                LeftOuterJoin(context, nextcontext, navProperty.ColumnName, tableInfo.IdentityColumn.ColumnName);                
                 yield return new SubTypePart
                 {
                     Type = targetType,
@@ -158,7 +158,7 @@ namespace PTORMPrototype.Query
                 //todo: suppose 1-1 totally and no inheritance lookup
                 var tableInfo = currentType.Tables.First();
                 var nextcontext = GetTableContext(tableInfo, "T");
-                InnerJoin(context, nextcontext, navProperty.ColumnName, tableInfo.IdentityColumn);
+                InnerJoin(context, nextcontext, navProperty.ColumnName, tableInfo.IdentityColumn.ColumnName);
                 context = nextcontext;
             }
             var property = currentType.GetProperty(fields.Last());
@@ -233,6 +233,26 @@ namespace PTORMPrototype.Query
                 builder.Append(string.Join(" AND ", _whereClauses));
             }
             return builder.ToString();
+        }
+
+        public string GetCreateTable(Type type)
+        {
+            var typeMapping = _metaInfoProvider.GetTypeMapping(type.Name);
+            var table = typeMapping.Tables.Last();
+            var stringBuilder = new StringBuilder("CREATE TABLE ");
+            stringBuilder.AppendFormat("[{0}]", table.Name);
+            stringBuilder.Append(" (");
+            stringBuilder.AppendFormat("[{0}] {1} PRIMARY KEY", table.IdentityColumn.ColumnName, table.IdentityColumn.SqlType.ToString().ToUpper());
+            if (table.HasDiscriminator)
+            {
+                stringBuilder.AppendFormat(", [{0}] INT NOT NULL", table.DiscriminatorColumn);    
+            }
+            foreach (var column in table.Columns)
+            {
+                stringBuilder.AppendFormat(", [{0}] {1}", column.ColumnName, column.SqlType.ToString().ToUpper());
+            }
+            stringBuilder.Append(");");
+            return stringBuilder.ToString();
         }
     }
 }
