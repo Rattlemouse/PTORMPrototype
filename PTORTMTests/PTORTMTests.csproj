@@ -52,6 +52,8 @@
     <Compile Include="TestClasses\BaseClass.cs" />
     <Compile Include="BaseSqlTest.cs" />
     <Compile Include="TestClasses\BaseWithNavigationClass.cs" />
+    <Compile Include="TestClasses\Collections\ClassWithCollection.cs" />
+    <Compile Include="TestClasses\Collections\CollectionItem.cs" />
     <Compile Include="TestClasses\DerivedClass.cs" />
     <Compile Include="TestClasses\NavigationedClass.cs" />
     <Compile Include="QueryAndMapperTest.cs" />

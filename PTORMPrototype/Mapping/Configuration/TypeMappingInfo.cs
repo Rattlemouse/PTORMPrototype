@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO.MemoryMappedFiles;
 using System.Linq;
 
 namespace PTORMPrototype.Mapping.Configuration
@@ -43,8 +44,13 @@ namespace PTORMPrototype.Mapping.Configuration
         {
             foreach (var column in _tables.SelectMany(z => z.Columns))
             {
-                if(column is NavigationPropertyMapping)
+                var nav = column as NavigationPropertyMapping;
+                if (nav != null)
+                {
+                    if(nav.Host == ReferenceHost.Child && nav.DeclaredType != this)
+                        continue;
                     _navigationPropertyMappings.Add(column);
+                }
                 else
                     _propertyMappings.Add(column);
             }            

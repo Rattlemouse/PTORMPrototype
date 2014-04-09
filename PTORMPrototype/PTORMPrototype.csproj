@@ -42,11 +42,6 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="Entities\Entities.cs">
-      <AutoGen>True</AutoGen>
-      <DesignTime>True</DesignTime>
-      <DependentUpon>Entities.tt</DependentUpon>
-    </Compile>
     <Compile Include="Mapping\Configuration\FluentConfiguration.cs" />
     <Compile Include="Mapping\Configuration\HierarchyInfo.cs" />
     <Compile Include="Mapping\Configuration\NavigationPropertyMapping.cs" />
@@ -74,10 +69,6 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />
-    <None Include="Entities\Entities.tt">
-      <Generator>TextTemplatingFileGenerator</Generator>
-      <LastGenOutput>Entities.cs</LastGenOutput>
-    </None>
   </ItemGroup>
   <ItemGroup>
     <Service Include="{508349B6-6B84-4DF5-91F0-309BEEBAD82D}" />

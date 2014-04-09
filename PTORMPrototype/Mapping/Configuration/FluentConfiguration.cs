@@ -125,18 +125,21 @@ namespace PTORMPrototype.Mapping.Configuration
                         var navPropertyMapping = new NavigationPropertyMapping
                         {                            
                             Name = property.Name,
-                            DeclaredType = mappingInfo,
-                            TargetType = typesDict[propertyType]
+                            DeclaredType = mappingInfo
+                            
                         };
                         if (propertyType.IsPrimitiveCollection())
                         {
+                            propertyType = propertyType.GetCollectionType();
+                            navPropertyMapping.TargetType = typesDict[propertyType];
                             throw new NotImplementedException();                            
                         }
                         else if (propertyType.IsCollection())
                         {
+                            propertyType = propertyType.GetCollectionType();
                             var idType = type.GetProperty(mappingInfo.IdentityField).PropertyType;
-                            //todo: bugg
-                            var childTable = navPropertyMapping.TargetType.Tables.First();
+                            navPropertyMapping.TargetType = typesDict[propertyType];
+                            var childTable = navPropertyMapping.TargetType.Tables.First();                            
                             navPropertyMapping.Table = childTable;
                             //todo: delay setting names
                             navPropertyMapping.ColumnName = string.Format("{0}_{1}", type.Name, property.Name);
@@ -146,14 +149,15 @@ namespace PTORMPrototype.Mapping.Configuration
                         }
                         else
                         {
+                            navPropertyMapping.TargetType = typesDict[propertyType];
                             var targetClrType = navPropertyMapping.TargetType.Type;
-                            var idType = targetClrType.GetProperty(navPropertyMapping.TargetType.IdentityField).PropertyType;
+                            var idType = targetClrType.GetProperty(navPropertyMapping.TargetType.IdentityField).PropertyType;                            
                             navPropertyMapping.SqlType = new SqlType(idType.GetSqlType(), true);
                             navPropertyMapping.Table = myTable;
                             navPropertyMapping.ColumnName = property.Name;                            
-                            navPropertyMapping.Host = ReferenceHost.Parent;
-                            myTable.Columns.Add(navPropertyMapping);
+                            navPropertyMapping.Host = ReferenceHost.Parent;                            
                         }
+                        myTable.Columns.Add(navPropertyMapping);
                     }                    
                 }
             }            
@@ -174,7 +178,7 @@ namespace PTORMPrototype.Mapping.Configuration
                         hierarchyQueue.Enqueue(childMapping);
                     }
                     currentNode.Complete();
-                }                
+                }
             });
             return typeMappings;
         }

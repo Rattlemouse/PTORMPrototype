@@ -128,12 +128,22 @@ namespace PTORMPrototype.Query
             foreach (var navigationField in fields)
             {
                 var navProperty = currentType.GetNavigation(navigationField);                
-                //todo: suppose 1-1 totally and no inheritance lookup
+                //todo: no primitive collections totally and no inheritance lookup
                 var targetType = navProperty.TargetType;
                 var tableInfo = targetType.Tables.First();
                 var nextcontext = GetTableContext(tableInfo, "S");
                 SelectAll(nextcontext);
-                LeftOuterJoin(context, nextcontext, navProperty.ColumnName, tableInfo.IdentityColumn.ColumnName);                
+
+                if (navProperty.Host == ReferenceHost.Parent)
+                {
+                    LeftOuterJoin(context, nextcontext, navProperty.ColumnName, tableInfo.IdentityColumn.ColumnName);
+                }
+                else if (navProperty.Host == ReferenceHost.Child)
+                {
+                    LeftOuterJoin(context, nextcontext, context.Table.IdentityColumn.ColumnName, navProperty.ColumnName);
+                }
+                else
+                    throw new NotImplementedException();
                 yield return new SubTypePart
                 {
                     Type = targetType,
@@ -155,10 +165,20 @@ namespace PTORMPrototype.Query
             {
                 var navProperty = type.GetNavigation(navigationField);
                 currentType = navProperty.TargetType;
-                //todo: suppose 1-1 totally and no inheritance lookup
+                //todo: no primitive collections totally and no inheritance lookup
                 var tableInfo = currentType.Tables.First();
                 var nextcontext = GetTableContext(tableInfo, "T");
-                InnerJoin(context, nextcontext, navProperty.ColumnName, tableInfo.IdentityColumn.ColumnName);
+                if (navProperty.Host == ReferenceHost.Parent)
+                {
+                    InnerJoin(context, nextcontext, navProperty.ColumnName, tableInfo.IdentityColumn.ColumnName);
+                }
+                else if (navProperty.Host == ReferenceHost.Child)
+                {
+                    InnerJoin(context, nextcontext, context.Table.IdentityColumn.ColumnName, navProperty.ColumnName);
+                }
+                else
+                    throw new NotImplementedException();
+                
                 context = nextcontext;
             }
             var property = currentType.GetProperty(fields.Last());

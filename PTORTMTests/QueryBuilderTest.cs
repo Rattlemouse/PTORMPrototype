@@ -3,6 +3,7 @@ using NUnit.Framework;
 using PTORMPrototype.Mapping.Configuration;
 using PTORMPrototype.Query;
 using PTORTMTests.TestClasses;
+using PTORTMTests.TestClasses.Collections;
 
 namespace PTORTMTests
 {
@@ -26,6 +27,40 @@ namespace PTORTMTests
             Assert.AreEqual("SELECT [M1].* FROM [BaseClass] AS [M1] WHERE [M1].[Prop1] = @p0", plan.SqlString);
             Assert.AreEqual(1, plan.SelectClause.Parts.OfType<TypePart>().Count());
             Assert.IsTrue(plan.SelectClause.Parts.OfType<TypePart>().All(z => z.Tables.Count == 1));
+        }
+
+        [Test]
+        public void TestQueryWithCollectionInInclude()
+        {
+            var types = FluentConfiguration.Start().DefaultIdProperty(IdentityField)
+                .AddTypeAuto<ClassWithCollection>()
+                .AddTypeAuto<CollectionItem>()
+                .GenerateTypeMappings();
+            var provider = new TestProvider(types);
+            var queryBuilder = new QueryBuilder(provider);
+            var plan = queryBuilder.GetQuery("ClassWithCollection", new string[0], new[]
+            {
+                "Collection"
+            });
+            Assert.AreEqual("SELECT [M1].*, [S1].* FROM [ClassWithCollection] AS [M1] LEFT OUTER JOIN [CollectionItem] AS [S1] ON [M1].[ObjectId] = [S1].[ClassWithCollection_Collection]", plan.SqlString);
+            Assert.AreEqual(2, plan.SelectClause.Parts.OfType<TypePart>().Count());
+            Assert.IsTrue(plan.SelectClause.Parts.OfType<TypePart>().All(z => z.Tables.Count == 1));
+        }
+
+        [Test]
+        public void TestQueryWithCollectionInFilter()
+        {
+            var types = FluentConfiguration.Start().DefaultIdProperty(IdentityField)
+                .AddTypeAuto<ClassWithCollection>()
+                .AddTypeAuto<CollectionItem>()
+                .GenerateTypeMappings();
+            var provider = new TestProvider(types);
+            var queryBuilder = new QueryBuilder(provider);
+            var plan = queryBuilder.GetQuery("ClassWithCollection", new[]
+            {
+                "Collection.Property"
+            });
+            Assert.AreEqual("SELECT [M1].* FROM [ClassWithCollection] AS [M1] INNER JOIN [CollectionItem] AS [T1] ON [M1].[ObjectId] = [T1].[ClassWithCollection_Collection] WHERE [T1].[Property] = @p0", plan.SqlString);
         }
 
         [Test]

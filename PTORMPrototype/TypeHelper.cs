@@ -34,6 +34,11 @@ namespace PTORMPrototype
             return type.GetInterfaces().Contains(typeof (IEnumerable));
         }
 
+        public static Type GetCollectionType(this Type type)
+        {
+            return type.IsArray ? type.GetElementType() : type.GetGenericArguments()[0];
+        }
+
         public static bool IsPrimitiveCollection(this Type type)
         {
             return type.IsGenericType && type.IsCollection() &&  type.GetGenericArguments()[0].IsSqlPrimitive();
