@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Specialized;
 using System.Linq;
 using System.Text;
 using PTORMPrototype.Mapping;
@@ -32,16 +33,16 @@ namespace PTORMPrototype.Query
 
         private class TableContext
         {
-            private readonly TableInfo _table;
+            private readonly Table _table;
             private readonly string _alias;
 
-            public TableContext(TableInfo table, string alias)
+            public TableContext(Table table, string alias)
             {
                 _table = table;
                 _alias = alias;
             }
 
-            public TableInfo Table
+            public Table Table
             {
                 get { return _table; }
             }
@@ -70,7 +71,7 @@ namespace PTORMPrototype.Query
             _metaInfoProvider = metaInfoProvider;
         }
 
-        private TableContext GetTableContext(TableInfo table, string context)
+        private TableContext GetTableContext(Table table, string context)
         {            
             AliasContext aliasContext;
             if (!_contextAliases.TryGetValue(context, out aliasContext))
@@ -83,7 +84,7 @@ namespace PTORMPrototype.Query
         public QueryPlan GetQuery(string type, string[] paths, string[] includes = null)
         {
             var typeMapping = _metaInfoProvider.GetTypeMapping(type);
-            var tables = typeMapping.Tables;
+            var tables = typeMapping.Tables.OfType<EntityTable>().ToList();
             var mainTable = tables.First();
             var mainTableContext = GetTableContext(mainTable, "M");
             var selectParts = new List<SelectPart>();
@@ -91,7 +92,7 @@ namespace PTORMPrototype.Query
             var mainPart = new TypePart
             {
                 Type =  typeMapping,
-                Tables = new List<TableInfo>(tables)
+                Tables = new List<Table>(tables)
             };
             selectParts.Add(mainPart);            
             if (includes != null)
@@ -127,10 +128,24 @@ namespace PTORMPrototype.Query
             var context = mainTableContext;
             foreach (var navigationField in fields)
             {
-                var navProperty = currentType.GetNavigation(navigationField);                
+                var navProperty = (NavigationPropertyMapping) currentType.GetProperty(navigationField);
+                if (navProperty.Table is PrimitiveListTable)
+                {
+                    var listContext = GetTableContext(navProperty.Table, "S");
+                    SelectAll(listContext);
+                    LeftOuterJoin(context, listContext, ((EntityTable)context.Table).IdentityColumn.ColumnName, navProperty.Table.Columns.First().ColumnName);                    
+                    yield return new ExpansionPart
+                    {                        
+                        Table = navProperty.Table,
+                        CollectingType = currentType,
+                        CollectingProperty = navProperty
+                    };
+                    yield break;
+                }                
+                
                 //todo: no primitive collections totally and no inheritance lookup
                 var targetType = navProperty.TargetType;
-                var tableInfo = targetType.Tables.First();
+                var tableInfo = targetType.Tables.OfType<EntityTable>().First();
                 var nextcontext = GetTableContext(tableInfo, "S");
                 SelectAll(nextcontext);
 
@@ -140,7 +155,7 @@ namespace PTORMPrototype.Query
                 }
                 else if (navProperty.Host == ReferenceHost.Child)
                 {
-                    LeftOuterJoin(context, nextcontext, context.Table.IdentityColumn.ColumnName, navProperty.ColumnName);
+                    LeftOuterJoin(context, nextcontext, ((EntityTable) context.Table).IdentityColumn.ColumnName, navProperty.ColumnName);
                 }
                 else
                     throw new NotImplementedException();
@@ -163,10 +178,15 @@ namespace PTORMPrototype.Query
             var context = initialContext;
             foreach (var navigationField in fields.Take(fields.Length - 1))
             {
-                var navProperty = type.GetNavigation(navigationField);
+                var navProperty = (NavigationPropertyMapping) type.GetProperty(navigationField);
+                var table = navProperty.Table;
+                if (table is PrimitiveListTable)
+                {
+                    return GetForPrimitiveList(table, context);
+                }
                 currentType = navProperty.TargetType;
                 //todo: no primitive collections totally and no inheritance lookup
-                var tableInfo = currentType.Tables.First();
+                var tableInfo = currentType.Tables.OfType<EntityTable>().First();
                 var nextcontext = GetTableContext(tableInfo, "T");
                 if (navProperty.Host == ReferenceHost.Parent)
                 {
@@ -174,7 +194,7 @@ namespace PTORMPrototype.Query
                 }
                 else if (navProperty.Host == ReferenceHost.Child)
                 {
-                    InnerJoin(context, nextcontext, context.Table.IdentityColumn.ColumnName, navProperty.ColumnName);
+                    InnerJoin(context, nextcontext, ((EntityTable) context.Table).IdentityColumn.ColumnName, navProperty.ColumnName);
                 }
                 else
                     throw new NotImplementedException();
@@ -182,8 +202,20 @@ namespace PTORMPrototype.Query
                 context = nextcontext;
             }
             var property = currentType.GetProperty(fields.Last());
+            var tbl = property.Table;
+            if (tbl is PrimitiveListTable)
+            {
+                return GetForPrimitiveList(tbl, context);
+            }
             //todo: think of context and inheritance
-            return string.Format("{0} = {1}", Column(GetTableContext(property.Table, property.Table == initialContext.Table ? "M" : "T"), property.ColumnName), GetNextParameter());
+            return string.Format("{0} = {1}", Column(GetTableContext(tbl, tbl == initialContext.Table ? "M" : "T"), property.ColumnName), GetNextParameter());
+        }
+
+        private string GetForPrimitiveList(Table table, TableContext context)
+        {
+            var listContext = GetTableContext(table, "T");
+            InnerJoin(context, listContext, ((EntityTable) context.Table).IdentityColumn.ColumnName, table.Columns[0].ColumnName);
+            return string.Format("{0} = {1}", Column(listContext, table.Columns[1].ColumnName), GetNextParameter());
         }
 
         private static string Column(TableContext table, string column)
@@ -258,19 +290,28 @@ namespace PTORMPrototype.Query
         public string GetCreateTable(Type type)
         {
             var typeMapping = _metaInfoProvider.GetTypeMapping(type.Name);
-            var table = typeMapping.Tables.Last();
+            var table = typeMapping.Tables.OfType<EntityTable>().Last();            
+            return string.Join("\n", new [] { CreateTable(table) }.Concat(typeMapping.Tables.OfType<PrimitiveListTable>().Select(CreateTable)));
+        }
+
+        private static string CreateTable(Table table)
+        {
             var stringBuilder = new StringBuilder("CREATE TABLE ");
             stringBuilder.AppendFormat("[{0}]", table.Name);
             stringBuilder.Append(" (");
-            stringBuilder.AppendFormat("[{0}] {1} PRIMARY KEY", table.IdentityColumn.ColumnName, table.IdentityColumn.SqlType.ToString().ToUpper());
-            if (table.HasDiscriminator)
+            var columns = new List<string>(table.Columns.Count + 2);               
+            var entityTabe = table as EntityTable;
+            if (entityTabe != null)
             {
-                stringBuilder.AppendFormat(", [{0}] INT NOT NULL", table.DiscriminatorColumn);    
+                columns.Add(string.Format("[{0}] {1} PRIMARY KEY", entityTabe.IdentityColumn.ColumnName,
+                    entityTabe.IdentityColumn.SqlType.ToString().ToUpper()));
+                if (entityTabe.HasDiscriminator)
+                {
+                    columns.Add(string.Format("[{0}] INT NOT NULL", entityTabe.DiscriminatorColumn));
+                }                                
             }
-            foreach (var column in table.Columns)
-            {
-                stringBuilder.AppendFormat(", [{0}] {1}", column.ColumnName, column.SqlType.ToString().ToUpper());
-            }
+            columns.AddRange(table.Columns.Select(column => string.Format("[{0}] {1}", column.ColumnName, column.SqlType.ToString().ToUpper())));
+            stringBuilder.Append(string.Join(", ", columns));
             stringBuilder.Append(");");
             return stringBuilder.ToString();
         }

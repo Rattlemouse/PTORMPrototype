@@ -22,42 +22,7 @@ namespace PTORTMTests.MassTest
         [SetUp]
         public void Setup()
         {
-           /* var createTable = SqlConnection.CreateCommand();
-            createTable.CommandText =
-                @"CREATE TABLE FirstClass (ObjectId uniqueidentifier PRIMARY KEY NOT NULL, 
-_dscr int NOT NULL, 
-FP1 int NOT NULL,
-FP2 int NOT NULL,
-FP3 int NOT NULL,
-FP4 int NOT NULL,
-FP5 nvarchar(255) NOT NULL,
-FP6 nvarchar(255) NOT NULL,
-FP7 nvarchar(255) NOT NULL,
-FP8 nvarchar(255) NOT NULL,
-Second uniqueidentifier NULL);
-CREATE TABLE SecondClass (ObjectId uniqueidentifier PRIMARY KEY NOT NULL, 
-_dscr int NOT NULL, 
-FP1 int NOT NULL,
-FP2 int NOT NULL,
-FP3 int NOT NULL,
-FP4 int NOT NULL,
-FP5 nvarchar(255) NOT NULL,
-FP6 nvarchar(255) NOT NULL,
-FP7 nvarchar(255) NOT NULL,
-FP8 nvarchar(255) NOT NULL,
-Third uniqueidentifier NULL);
-CREATE TABLE ThirdClass (ObjectId uniqueidentifier PRIMARY KEY NOT NULL, 
-_dscr int NOT NULL, 
-FP1 int NOT NULL,
-FP2 int NOT NULL,
-FP3 int NOT NULL,
-FP4 int NOT NULL,
-FP5 nvarchar(255) NOT NULL,
-FP6 nvarchar(255) NOT NULL,
-FP7 nvarchar(255) NOT NULL,
-FP8 nvarchar(255) NOT NULL);
-";
-            createTable.ExecuteNonQuery();*/
+           
         }
 
         [TearDown]

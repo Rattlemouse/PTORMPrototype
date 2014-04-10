@@ -7,7 +7,7 @@ namespace PTORMPrototype.Mapping.Configuration
     {
         public TypeMappingInfo DeclaredType { get; set; }
         public string Name { get; set; }
-        public TableInfo Table { get; set; }
+        public Table Table { get; set; }
         public string ColumnName { get; set; }
         public bool Nullable { get { return SqlType.Nullable; } }
         public SqlType SqlType { get; set; }

@@ -11,6 +11,7 @@ namespace PTORTMTests
     public class QueryBuilderTest
     {
         private const string IdentityField = "ObjectId";
+        private const string DefaultDiscriminator = "_dscr";
 
         [Test]
         public void TestSimpleQuery()
@@ -64,13 +65,60 @@ namespace PTORTMTests
         }
 
         [Test]
+        public void TestQueryWithArrayFilter()
+        {
+            var types = FluentConfiguration.Start().DefaultIdProperty(IdentityField)
+                .AddTypeAuto<ClassWithIntArr>()                
+                .GenerateTypeMappings();
+            var provider = new TestProvider(types);
+            var queryBuilder = new QueryBuilder(provider);
+            var plan = queryBuilder.GetQuery("ClassWithIntArr", new[]
+            {
+                "Arr"
+            });
+            Assert.AreEqual("SELECT [M1].* FROM [ClassWithIntArr] AS [M1] INNER JOIN [ClassWithIntArr_Arr] AS [T1] ON [M1].[ObjectId] = [T1].[ParentId] WHERE [T1].[Value] = @p0", plan.SqlString);
+        }
+
+
+        [Test]
+        public void TestQueryWithArrayInInclude()
+        {
+            var types = FluentConfiguration.Start().DefaultIdProperty(IdentityField)
+                .AddTypeAuto<ClassWithIntArr>()
+
+                .GenerateTypeMappings();
+            var provider = new TestProvider(types);
+            var queryBuilder = new QueryBuilder(provider);
+            var plan = queryBuilder.GetQuery("ClassWithIntArr", new string[0], new[]
+            {
+                "Arr"
+            });
+            Assert.AreEqual("SELECT [M1].*, [S1].* FROM [ClassWithIntArr] AS [M1] LEFT OUTER JOIN [ClassWithIntArr_Arr] AS [S1] ON [M1].[ObjectId] = [S1].[ParentId]", plan.SqlString);
+            Assert.AreEqual(2, plan.SelectClause.Parts.Count());
+            Assert.IsTrue(plan.SelectClause.Parts.OfType<TypePart>().All(z => z.Tables.Count == 1));
+        }
+
+
+        [Test]
         public void TestCreateTableQuery()
         {        
-            var types = FluentConfiguration.Start().DefaultIdProperty(IdentityField).DefaultDiscriminatorColumnName("_dscr").AddType<BaseClass>(z => z.AllProperties()).GenerateTypeMappings();
+            var types = FluentConfiguration.Start().DefaultIdProperty(IdentityField).DefaultDiscriminatorColumnName(DefaultDiscriminator).AddType<BaseClass>(z => z.AllProperties()).GenerateTypeMappings();
             var provider = new TestProvider(types);
             var queryBuilder = new QueryBuilder(provider);
             var result = queryBuilder.GetCreateTable(typeof(BaseClass));
             Assert.AreEqual("CREATE TABLE [BaseClass] ([ObjectId] UNIQUEIDENTIFIER NOT NULL PRIMARY KEY, [_dscr] INT NOT NULL, [Prop1] INT NOT NULL);", result);            
+        }
+
+        [Test]
+        public void TestCreateTableWithArray()
+        {
+            var types = FluentConfiguration.Start().DefaultIdProperty(IdentityField).DefaultDiscriminatorColumnName(DefaultDiscriminator)
+                .AddType<ClassWithIntArr>(z => z.AllProperties()).GenerateTypeMappings();
+            var provider = new TestProvider(types);
+            var queryBuilder = new QueryBuilder(provider);
+            var result = queryBuilder.GetCreateTable(typeof(ClassWithIntArr));
+            Assert.AreEqual("CREATE TABLE [ClassWithIntArr] ([ObjectId] UNIQUEIDENTIFIER NOT NULL PRIMARY KEY, [_dscr] INT NOT NULL);\n"
+                +"CREATE TABLE [ClassWithIntArr_Arr] ([ParentId] UNIQUEIDENTIFIER NOT NULL, [Value] INT NOT NULL, [Index] BIGINT NOT NULL);", result);
         }
 
 
@@ -81,7 +129,7 @@ namespace PTORTMTests
             const string derivedType = "DerivedClass";
             var types = FluentConfiguration.Start()
                 .DefaultIdProperty(IdentityField)
-                .DefaultDiscriminatorColumnName("_dscr")
+                .DefaultDiscriminatorColumnName(DefaultDiscriminator)
                 .AddType<BaseClass>(z => z.AllProperties())
                 .AddType<DerivedClass>(z => z.AllProperties())
                 .GenerateTypeMappings();
@@ -102,7 +150,7 @@ namespace PTORTMTests
         {
             var types = FluentConfiguration.Start()
                 .DefaultIdProperty(IdentityField)
-                .DefaultDiscriminatorColumnName("_dscr")
+                .DefaultDiscriminatorColumnName(DefaultDiscriminator)
                 .AddType<BaseWithNavigationClass>(z => z.AllProperties())
                 .AddType<NavigationedClass>(z => z.AllProperties())
                 .GenerateTypeMappings();
@@ -121,7 +169,7 @@ namespace PTORTMTests
         {
             var types = FluentConfiguration.Start()
                 .DefaultIdProperty(IdentityField)
-                .DefaultDiscriminatorColumnName("_dscr")
+                .DefaultDiscriminatorColumnName(DefaultDiscriminator)
                 .AddType<BaseWithNavigationClass>(z => z.AllProperties())
                 .AddType<NavigationedClass>(z => z.AllProperties())
                 .GenerateTypeMappings();

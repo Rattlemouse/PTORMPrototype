@@ -82,7 +82,7 @@ namespace PTORMPrototype.Mapping.Configuration
             {
                 var mappingInfo = typeConfig.Mapping;
                 var type = mappingInfo.Type;
-                var myTable = new TableInfo
+                var myTable = new EntityTable
                 {
                     Name = type.Name,                    
                     IdentityColumn = new PropertyMapping
@@ -104,7 +104,7 @@ namespace PTORMPrototype.Mapping.Configuration
             {
                 var mappingInfo = typeConfig.Mapping;
                 var type = mappingInfo.Type;
-                var myTable = mappingInfo.Tables.First();
+                var myTable = (EntityTable) mappingInfo.Tables.First();
                 foreach (var property in typeConfig.MappedProperties)
                 {
                     var propertyType = property.PropertyType;
@@ -119,20 +119,27 @@ namespace PTORMPrototype.Mapping.Configuration
                             SqlType = GetSqlType(propertyType)
                         };
                         myTable.Columns.Add(propertyMapping);
+                        mappingInfo.AddProperty(propertyMapping);
                     }
                     else
                     {
                         var navPropertyMapping = new NavigationPropertyMapping
                         {                            
                             Name = property.Name,
-                            DeclaredType = mappingInfo
-                            
+                            DeclaredType = mappingInfo                            
                         };
                         if (propertyType.IsPrimitiveCollection())
-                        {
+                        {                                                        
                             propertyType = propertyType.GetCollectionType();
-                            navPropertyMapping.TargetType = typesDict[propertyType];
-                            throw new NotImplementedException();                            
+                            navPropertyMapping.Host = ReferenceHost.Child;  
+                            //todo: make options
+                            var primitiveListTable = new PrimitiveListTable(myTable.IdentityColumn, GetSqlType(propertyType), true)
+                            {
+                                Name = string.Format("{0}_{1}", myTable.Name, navPropertyMapping.Name)
+                            };
+                            navPropertyMapping.Table = primitiveListTable;
+                          
+                            mappingInfo.Tables.Add(primitiveListTable);
                         }
                         else if (propertyType.IsCollection())
                         {
@@ -155,9 +162,10 @@ namespace PTORMPrototype.Mapping.Configuration
                             navPropertyMapping.SqlType = new SqlType(idType.GetSqlType(), true);
                             navPropertyMapping.Table = myTable;
                             navPropertyMapping.ColumnName = property.Name;                            
-                            navPropertyMapping.Host = ReferenceHost.Parent;                            
+                            navPropertyMapping.Host = ReferenceHost.Parent;      
+                            myTable.Columns.Add(navPropertyMapping);                       
                         }
-                        myTable.Columns.Add(navPropertyMapping);
+                        mappingInfo.AddProperty(navPropertyMapping);
                     }                    
                 }
             }            
@@ -177,7 +185,6 @@ namespace PTORMPrototype.Mapping.Configuration
                         currentNode.Hierarchy.AddMapping(childMapping);
                         hierarchyQueue.Enqueue(childMapping);
                     }
-                    currentNode.Complete();
                 }
             });
             return typeMappings;

@@ -5,7 +5,7 @@ namespace PTORMPrototype.Query
 {
     public class TypePart : SelectPart
     {
-        public IList<TableInfo> Tables { get; set; }
+        public IList<Table> Tables { get; set; }
         public TypeMappingInfo Type { get; set; }
     }
 }

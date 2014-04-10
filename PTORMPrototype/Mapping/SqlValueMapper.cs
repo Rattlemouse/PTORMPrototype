@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Data;
 using System.Data.SqlClient;
 using System.Linq;
@@ -12,45 +13,77 @@ using PTORMPrototype.Query;
 namespace PTORMPrototype.Mapping
 {
     public class SqlValueMapper
-    {        
-        private static readonly MethodInfo GetInt = typeof(SqlDataReader).GetMethod("GetInt32", new[] { typeof(int) });
-        private static readonly MethodInfo GetGuid = typeof(SqlDataReader).GetMethod("GetGuid", new[] { typeof(int) });
-        private static readonly MethodInfo GetString = typeof(SqlDataReader).GetMethod("GetString", new[] { typeof(int) });
+    {
+        private static readonly MethodInfo GetInt = typeof(IDataRecord).GetMethod("GetInt32", new[] { typeof(int) });
+        private static readonly MethodInfo GetGuid = typeof(IDataRecord).GetMethod("GetGuid", new[] { typeof(int) });
+        private static readonly MethodInfo GetString = typeof(IDataRecord).GetMethod("GetString", new[] { typeof(int) });
         private static readonly MethodInfo IsDbNullMethod = typeof(IDataRecord).GetMethod("IsDBNull", new[] { typeof(int) });
 
         private class LayerInfo
         {
+            private readonly IList<ExpansionPart> _expansions = new List<ExpansionPart>();
             public TypePart TypePart { get; set; }
             public CreatingDelegate CreatingDelegate { get; set; }            
             public List<FillingDelegate> FillingDelegates { get; set; }
             public int LayerOffset { get; set; }
             public LayerInfo NextLayer { get; set; }
 
+            public IList<ExpansionPart> Expansions
+            {
+                get { return _expansions; }                
+            }
+
             public void AddNextLayer(LayerInfo layer)
             {
                 NextLayer = layer;
-                layer.LayerOffset = LayerOffset + 1 + TypePart.Tables.Sum(z => z.Columns.Count + 1);
+                layer.LayerOffset = LayerEnds + Expansions.Sum(z => z.Table.Columns.Count);
+            }
+
+            public int LayerEnds
+            {
+                get
+                {
+                    return LayerOffset 
+                           + TypePart.Tables.Sum(z => z.Columns.Count) 
+                           + TypePart.Tables.OfType<EntityTable>().Sum(z => z.HasDiscriminator ? 2 : 1);
+                }
             }
         }
 
-        public IEnumerable MapFromReader(SqlDataReader reader, SelectClause selectClause)
+        public IEnumerable MapFromReader(IDataReader reader, SelectClause selectClause)
         {                                    
             var successRead = reader.Read();
             LayerInfo firstLayer = null;
             LayerInfo lastLayer = null;
-            foreach (var typePart in selectClause.Parts.OfType<TypePart>())
+            foreach (var selectPart in selectClause.Parts)
             {
-                var layer = new LayerInfo
+                var typePart = selectPart as TypePart;
+                if (typePart != null)
                 {
-                    TypePart = typePart,
-                    CreatingDelegate = GetTypeInstanceCreateDelegate(typePart.Type),
-                    FillingDelegates = typePart.Tables.Select(z => GetFiller(typePart.Type, z)).ToList()                    
-                };
-                if (lastLayer != null)
-                    lastLayer.AddNextLayer(layer);
-                if (firstLayer == null)
-                    firstLayer = layer;
-                lastLayer = layer;
+                    var layer = new LayerInfo
+                    {
+                        TypePart = typePart,
+                        CreatingDelegate = GetTypeInstanceCreateDelegate(typePart.Type),
+                        FillingDelegates = typePart.Tables.Select(z => GetFiller(typePart.Type, z)).ToList(),
+                    };
+                    if (lastLayer != null)
+                        lastLayer.AddNextLayer(layer);
+                    if (firstLayer == null)
+                        firstLayer = layer;
+                    lastLayer = layer;
+                }
+                else
+                {
+                    var expansion = selectPart as ExpansionPart;
+                    if (expansion != null)
+                    {
+                        if(lastLayer == null)
+                            throw new InvalidOperationException("No last layer. Primitives can't be first");
+                        if(lastLayer.TypePart.Type != expansion.CollectingType)
+                            throw new InvalidOperationException("Implementation accepts only collections for previous type's properties");
+                        lastLayer.Expansions.Add(expansion);
+                    }
+                }
             }
             while (successRead)
             {
@@ -61,11 +94,11 @@ namespace PTORMPrototype.Mapping
         private object LoadObjectTree(LayerInfo layer, IDataReader reader, out bool successRead)
         {
             var val = (IComparable)reader.GetValue(layer.LayerOffset);
-            var createObject = layer.CreatingDelegate(reader, layer.LayerOffset);
+            var entityObject = layer.CreatingDelegate(reader, layer.LayerOffset);
             var notfirst = false;
             foreach (var fillingDelegate in layer.FillingDelegates)
             {
-                fillingDelegate(reader, createObject, layer.LayerOffset + (notfirst ? 1 : 2));
+                fillingDelegate(reader, entityObject, layer.LayerOffset + (notfirst ? 1 : 2));
                 notfirst = true;
             }
             successRead = true;
@@ -73,18 +106,86 @@ namespace PTORMPrototype.Mapping
             {
                 //todo: nav-filling delegates - separate
                 var nextPart = (SubTypePart) layer.NextLayer.TypePart;
-                var property = createObject.GetType().GetProperty(nextPart.CollectingProperty.Name);
-                while (successRead && ((IComparable) reader.GetValue(layer.LayerOffset)).CompareTo(val) == 0)
+                var property = entityObject.GetType().GetProperty(nextPart.CollectingProperty.Name);
+                if (property.PropertyType.IsCollection())
                 {
-                    var propObj = LoadObjectTree(layer.NextLayer, reader, out successRead);
-                    property.SetValue(createObject, propObj);
+                    var itemType = property.PropertyType.GetCollectionType();
+                    var collection = (IList) Activator.CreateInstance(typeof (List<>).MakeGenericType(itemType));
+                    while (successRead && ((IComparable)reader.GetValue(layer.LayerOffset)).CompareTo(val) == 0)
+                    {
+                        var propObj = LoadObjectTree(layer.NextLayer, reader, out successRead);
+                        collection.Add(propObj);
+                    }
+                    if (property.PropertyType.IsArray)
+                    {
+                        var array = Array.CreateInstance(itemType, collection.Count);
+                        collection.CopyTo(array, 0);
+                        property.SetValue(entityObject, array);
+                    }
+                    else
+                    {
+                        property.SetValue(entityObject, collection);
+                    }
+                }
+                else
+                {
+                    while (successRead && ((IComparable)reader.GetValue(layer.LayerOffset)).CompareTo(val) == 0)
+                    {
+                        var propObj = LoadObjectTree(layer.NextLayer, reader, out successRead);
+                        property.SetValue(entityObject, propObj);
+                    }
+                }
+            }
+            else if (layer.Expansions.Count > 0)
+            {
+                var exp = layer.Expansions.First();
+                var property = entityObject.GetType().GetProperty(exp.CollectingProperty.Name);
+                var itemType = property.PropertyType.GetCollectionType();
+                var primitive = (PrimitiveListTable)exp.Table;
+                var collection = (IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(itemType));
+                if (primitive.MaintainOrder)
+                {
+                    var dictionary = new SortedDictionary<long, object>();
+                    var offset = layer.LayerEnds;
+                    while (successRead && ((IComparable) reader.GetValue(layer.LayerOffset)).CompareTo(val) == 0)
+                    {
+                        var k = reader.GetInt64(offset + 2);
+                        var v = reader.GetValue(offset + 1);
+                        dictionary[k] = v;
+                        successRead = reader.Read();
+                    }
+                    //todo: optimize
+                    foreach (var item in dictionary)
+                    {
+                        collection.Add(item.Value);
+                    }
+                }
+                else
+                {
+                    var offset = layer.LayerEnds;
+                    while (successRead && ((IComparable)reader.GetValue(layer.LayerOffset)).CompareTo(val) == 0)
+                    {                        
+                        var v = reader.GetValue(offset + 1);
+                        collection.Add(v);
+                        successRead = reader.Read();
+                    }
+                }
+                if (property.PropertyType.IsArray)
+                {
+                    var array = Array.CreateInstance(itemType, collection.Count);
+                    collection.CopyTo(array, 0);
+                    property.SetValue(entityObject, array);
+                }
+                else
+                {
+                    property.SetValue(entityObject, collection);
                 }
             }
             else
             {
                 successRead = reader.Read();
             }
-            return createObject;
+            return entityObject;
 
         }
 
@@ -150,7 +251,7 @@ namespace PTORMPrototype.Mapping
         }
 
         //todo: temporary public
-        public FillingDelegate GetFiller(TypeMappingInfo mapping, TableInfo table) 
+        public FillingDelegate GetFiller(TypeMappingInfo mapping, Table table) 
         {            
             var ct = typeof(object);
             // Fill(reader, obj, offset)
@@ -226,8 +327,11 @@ namespace PTORMPrototype.Mapping
         private void GenerateForNavigationProperty(NavigationPropertyMapping navigation, Type type, ILGenerator generator,
             int i)
         {
+            if(navigation.Host != ReferenceHost.Parent)
+                return;
             var targetMapping = navigation.TargetType;
             var targetClrType = targetMapping.Type;
+            
             var propertyInfo = type.GetProperty(navigation.Name);
             if (propertyInfo == null)
                 throw new InvalidOperationException("Class does not match mapping. This is really strange.");

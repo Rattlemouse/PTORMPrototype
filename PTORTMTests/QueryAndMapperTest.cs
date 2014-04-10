@@ -110,6 +110,7 @@ CREATE TABLE NavigationedClass (ObjectId uniqueidentifier PRIMARY KEY NOT NULL, 
 
             var types = FluentConfiguration.Start()
                 .DefaultIdProperty(IdentityField)
+                .DefaultDiscriminatorColumnName("_dscr")
                 .AddType<BaseWithNavigationClass>(z => z.AllProperties())
                 .AddType<NavigationedClass>(z => z.AllProperties())
                 .GenerateTypeMappings();

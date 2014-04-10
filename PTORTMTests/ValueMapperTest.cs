@@ -1,55 +1,41 @@
 ﻿using System;
-using System.Data.SqlClient;
+using System.Data;
 using System.Linq;
 using NUnit.Framework;
 using PTORMPrototype.Mapping;
 using PTORMPrototype.Mapping.Configuration;
 using PTORMPrototype.Query;
 using PTORTMTests.TestClasses;
+using PTORTMTests.TestClasses.Collections;
+using Rhino.Mocks;
 
 namespace PTORTMTests
 {
     [TestFixture]
-    public class ValueMapperTest : BaseSqlTest
+    public class ValueMapperTest
     {
         private const string IdentityField = "ObjectId";
-      
-        [SetUp]
-        public void Setup()
-        {
-            var createTable = SqlConnection.CreateCommand();
-            createTable.CommandText = @"CREATE TABLE BaseClass (ObjectId uniqueidentifier PRIMARY KEY NOT NULL, _dscr int NOT NULL, Prop1 int NOT NULL);
-CREATE TABLE DerivedClass (ObjectId uniqueidentifier PRIMARY KEY NOT NULL, Prop2 int NOT NULL);";
-            createTable.ExecuteNonQuery();
-        }
-
-
-        [TearDown]
-        public void TearDown()
-        {
-            var dropTable = SqlConnection.CreateCommand();
-            dropTable.CommandText = "DROP TABLE BaseClass;DROP TABLE DerivedClass;";
-            dropTable.ExecuteNonQuery();            
-        }
-
+        private const string Discriminator = "_dscr";      
         [Test]
         public void TestDerivedClassMapping()
         {                 
-            var insertCommand = SqlConnection.CreateCommand();
-            insertCommand.CommandText = "INSERT INTO BaseClass (ObjectId, _dscr, Prop1) VALUES(@p1, 2, 1); INSERT INTO DerivedClass (ObjectId, Prop2) VALUES(@p1, 3);";
-            insertCommand.Parameters.AddWithValue("@p1", Guid.NewGuid());            
-            insertCommand.ExecuteNonQuery();
-            var command = SqlConnection.CreateCommand();
-            command.CommandText = "SELECT [T1].*, [T2].* FROM [BaseClass] AS [T1] INNER JOIN [DerivedClass] AS [T2] ON [T1].[ObjectId] = [T2].[ObjectId];";
+        
             var types = FluentConfiguration.Start().DefaultIdProperty(IdentityField)
+                .DefaultDiscriminatorColumnName(Discriminator)
                 .AddType<BaseClass>(z => z.AllProperties())
                 .AddType<DerivedClass>(z => z.AllProperties())
                 .GenerateTypeMappings();
             var provider = new TestProvider(types);    
             
             var mapper = new SqlValueMapper();
-            using (var reader = command.ExecuteReader())
-            {
+            var reader = MockRepository.GenerateMock<IDataReader>();
+            reader.Stub(z => z.GetGuid(0)).Return(Guid.NewGuid());
+            reader.Stub(z => z.GetInt32(1)).Return(2);
+            reader.Stub(z => z.GetInt32(2)).Return(1);
+            reader.Stub(z => z.GetGuid(3)).Return(Guid.NewGuid());
+            reader.Stub(z => z.GetInt32(4)).Return(3);
+            var numCalls = 1;
+            reader.Stub(z => z.Read()).Return(true).WhenCalled(z => z.ReturnValue = --numCalls >= 0 );
                 var typeMappingInfo = provider.GetTypeMapping("DerivedClass");
                 var selectClause = new SelectClause
                 {
@@ -65,42 +51,170 @@ CREATE TABLE DerivedClass (ObjectId uniqueidentifier PRIMARY KEY NOT NULL, Prop2
                 var classes = mapper.MapFromReader(reader, selectClause);
                 var result = classes.OfType<BaseClass>().First();
                 Assert.AreEqual(1, result.Prop1);
-            }
+            
         }
 
         [Test]
         public void TestSimpleClassMapping()
         {
-            var insertCommand = SqlConnection.CreateCommand();
-            insertCommand.CommandText = "INSERT INTO BaseClass (ObjectId, _dscr, Prop1) VALUES(@p1, 1, @p2)";
-            insertCommand.Parameters.AddWithValue("@p1", Guid.NewGuid());
-            insertCommand.Parameters.AddWithValue("@p2", 1);
-            insertCommand.ExecuteNonQuery();
-            var command = SqlConnection.CreateCommand();
-            command.CommandText = "SELECT [T1].* FROM [BaseClass] AS [T1]";            
-
             var types = FluentConfiguration.Start().DefaultIdProperty(IdentityField).AddType<BaseClass>(z => z.AllProperties()).GenerateTypeMappings();
             var provider = new TestProvider(types);    
             
             var mapper = new SqlValueMapper();
-            using (var reader = command.ExecuteReader())
+            var reader = MockRepository.GenerateMock<IDataReader>();
+            reader.Stub(z => z.GetGuid(0)).Return(Guid.NewGuid());
+            reader.Stub(z => z.GetInt32(1)).Return(2);
+            reader.Stub(z => z.GetInt32(2)).Return(1);            
+            var numCalls = 1;
+            reader.Stub(z => z.Read()).Return(true).WhenCalled(z => z.ReturnValue = --numCalls >= 0 );
+            var typeMappingInfo = provider.GetTypeMapping("BaseClass");
+            var selectClause = new SelectClause
             {
-                var typeMappingInfo = provider.GetTypeMapping("BaseClass");
-                var selectClause = new SelectClause
+                Parts = new SelectPart[]
                 {
-                    Parts = new SelectPart[]
+                    new TypePart
                     {
-                        new TypePart
-                        {
-                            Type = typeMappingInfo, 
-                            Tables = typeMappingInfo.Tables.Take(1).ToList()
-                        }
+                        Type = typeMappingInfo, 
+                        Tables = typeMappingInfo.Tables.Take(1).ToList()
                     }
-                };
-                var classes = mapper.MapFromReader(reader, selectClause);
-                var result = classes.OfType<BaseClass>().First();
-                Assert.AreEqual(1, result.Prop1);
-            }
+                }
+            };
+            var classes = mapper.MapFromReader(reader, selectClause);
+            var result = classes.OfType<BaseClass>().First();
+            Assert.AreEqual(1, result.Prop1);
+        }
+
+        [Test]
+        public void TestMappingWithNavigation()
+        {
+            var navGuid = Guid.NewGuid();
+            var types = FluentConfiguration.Start()
+                .DefaultIdProperty(IdentityField)
+                .DefaultDiscriminatorColumnName(Discriminator)
+                .AddType<BaseWithNavigationClass>(z => z.AllProperties())
+                .AddType<NavigationedClass>(z => z.AllProperties())
+                .GenerateTypeMappings();
+            var provider = new TestProvider(types);
+            var mapper = new SqlValueMapper();
+            var reader = MockRepository.GenerateMock<IDataReader>();
+            reader.Stub(z => z.GetGuid(0)).Return(Guid.NewGuid());
+            reader.Stub(z => z.GetInt32(1)).Return(2);
+            reader.Stub(z => z.GetGuid(2)).Return(navGuid);            
+            var numCalls = 1;
+            reader.Stub(z => z.Read()).Return(true).WhenCalled(z => z.ReturnValue = --numCalls >= 0 );
+            var typeMappingInfo = provider.GetTypeMapping("BaseWithNavigationClass");
+            var selectClause = new SelectClause
+            {
+                Parts = new SelectPart[]
+                {
+                    new TypePart
+                    {
+                        Type = typeMappingInfo, 
+                        Tables = typeMappingInfo.Tables.Take(1).ToList()
+                    }
+                }
+            };
+            var classes = mapper.MapFromReader(reader, selectClause);
+            var result = classes.OfType<BaseWithNavigationClass>().First();
+            Assert.IsNotNull(result.Nav);
+            Assert.AreEqual(navGuid, result.Nav.ObjectId);
+        }
+
+        [Test]
+        public void TestMappingWithNavigationCollection()
+        {
+            var navGuid = Guid.NewGuid();
+            var types = FluentConfiguration.Start()
+                .DefaultIdProperty(IdentityField)
+                .DefaultDiscriminatorColumnName(Discriminator)
+                .AddType<ClassWithCollection>(z => z.AllProperties())
+                .AddType<CollectionItem>(z => z.AllProperties())
+                .GenerateTypeMappings();
+            var provider = new TestProvider(types);
+            var mapper = new SqlValueMapper();
+            var reader = MockRepository.GenerateMock<IDataReader>();
+            var id = Guid.NewGuid();
+            reader.Stub(z => z.GetGuid(0)).Return(id);
+            reader.Stub(z => z.GetValue(0)).Return(id);
+            reader.Stub(z => z.GetInt32(1)).Return(1);
+            reader.Stub(z => z.GetGuid(2)).Return(navGuid);
+            reader.Stub(z => z.GetValue(2)).Return(navGuid);
+            reader.Stub(z => z.GetInt32(3)).Return(1);
+            reader.Stub(z => z.GetGuid(4)).Return(id);
+            reader.Stub(z => z.GetString(5)).Return("someString");
+            var numCalls = 1;
+            reader.Stub(z => z.Read()).Return(true).WhenCalled(z => z.ReturnValue = --numCalls >= 0);
+            var typeMappingInfo = provider.GetTypeMapping("ClassWithCollection");
+            var itemMappingInfo = provider.GetTypeMapping("CollectionItem");
+            var selectClause = new SelectClause
+            {
+                Parts = new SelectPart[]
+                {
+                    new TypePart
+                    {
+                        Type = typeMappingInfo, 
+                        Tables = typeMappingInfo.Tables.Take(1).ToList()
+                    },
+                    new SubTypePart
+                    {
+                        Type = itemMappingInfo,
+                        Tables = itemMappingInfo.Tables.Take(1).ToList(),
+                        CollectingProperty = typeMappingInfo.GetProperty("Collection"),
+                        CollectingType = typeMappingInfo
+                    }
+                }
+            };
+            var classes = mapper.MapFromReader(reader, selectClause);
+            var result = classes.OfType<ClassWithCollection>().First();
+            Assert.IsNotNull(result.Collection);
+            Assert.AreEqual(navGuid, result.Collection.First().ObjectId);
+        }
+
+        [Test]
+        public void TestMappingWithArrayOfPrimitives()
+        {
+            var types = FluentConfiguration.Start()
+                .DefaultIdProperty(IdentityField)
+                .DefaultDiscriminatorColumnName(Discriminator)
+                .AddType<ClassWithIntArr>(z => z.AllProperties())                
+                .GenerateTypeMappings();
+            var provider = new TestProvider(types);
+            var mapper = new SqlValueMapper();
+            var reader = MockRepository.GenerateMock<IDataReader>();
+            var id = Guid.NewGuid();
+            var numCalls = 2;
+            reader.Stub(z => z.GetGuid(0)).Return(id);
+            reader.Stub(z => z.GetValue(0)).Return(id);
+            reader.Stub(z => z.GetInt32(1)).Return(1);
+            reader.Stub(z => z.GetGuid(2)).Return(id);
+            reader.Stub(z => z.GetValue(2)).Return(id);
+            reader.Stub(z => z.GetValue(3)).Return(2);
+            reader.Stub(z => z.GetInt64(4)).Return(0L).WhenCalled(z => z.ReturnValue = numCalls == 1 ? 0L : 1L);            
+            
+            reader.Stub(z => z.Read()).Return(true).WhenCalled(z => z.ReturnValue = --numCalls >= 0);
+            var typeMappingInfo = provider.GetTypeMapping("ClassWithIntArr");            
+            var selectClause = new SelectClause
+            {
+                Parts = new SelectPart[]
+                {
+                    new TypePart
+                    {
+                        Type = typeMappingInfo, 
+                        Tables = typeMappingInfo.Tables.Take(1).ToList()
+                    },
+                    new ExpansionPart
+                    {                        
+                        Table = typeMappingInfo.Tables.OfType<PrimitiveListTable>().First(),
+                        CollectingProperty = typeMappingInfo.GetProperty("Arr"),
+                        CollectingType = typeMappingInfo
+                    }
+                }
+            };
+            var classes = mapper.MapFromReader(reader, selectClause);
+            var result = classes.OfType<ClassWithIntArr>().First();
+            Assert.IsNotNull(result.Arr);
+            Assert.AreEqual(2, result.Arr.Length);
+            Assert.AreEqual(2, result.Arr.First());
         }
     }
 

@@ -41,7 +41,7 @@ namespace PTORMPrototype
 
         public static bool IsPrimitiveCollection(this Type type)
         {
-            return type.IsGenericType && type.IsCollection() &&  type.GetGenericArguments()[0].IsSqlPrimitive();
+            return type.IsCollection() && type.GetCollectionType().IsSqlPrimitive();
         }
 
         static readonly Dictionary<Type,SqlDbType> TypeMapping = new Dictionary<Type, SqlDbType>

@@ -9,7 +9,7 @@ namespace PTORMPrototype.Mapping.Configuration
     {
         public HierarchyInfo Hierarchy { get; set; }
 
-        public ICollection<TableInfo> Tables
+        public ICollection<Table> Tables
         {
             get { return _tables; }            
         }
@@ -18,42 +18,28 @@ namespace PTORMPrototype.Mapping.Configuration
         public string IdentityField { get; set; }
         public int Discriminator { get; set; }
 
-        private readonly PropertyMappingCollection _navigationPropertyMappings = new PropertyMappingCollection();
         private readonly PropertyMappingCollection _propertyMappings = new PropertyMappingCollection();
-        private readonly List<TableInfo> _tables = new List<TableInfo>();
+        private readonly List<Table> _tables = new List<Table>();
 
         //public IEnumerable<PropertyMapping> PropertyMappings { get { return _propertyMappings; } }
         //public IEnumerable<NavigationPropertyMapping> NavigationPropertyMappings { get { return _navigationPropertyMappings.OfType<NavigationPropertyMapping>(); } }
 
         public void RefillFromParent(TypeMappingInfo parentMapping)
         {                       
-            _tables.InsertRange(0, parentMapping.Tables);            
-        }
+            _tables.InsertRange(0, parentMapping.Tables.OfType<EntityTable>());            
+            for (var i = 0; i < parentMapping._propertyMappings.Count; i++)
+                _propertyMappings.Insert(i, parentMapping._propertyMappings[i]);
 
-        public NavigationPropertyMapping GetNavigation(string fieldName)
-        {
-            return (NavigationPropertyMapping) _navigationPropertyMappings[fieldName];
         }
 
         public PropertyMapping GetProperty(string fieldName)
         {
             return _propertyMappings[fieldName];
-        }
+        }       
 
-        public void Complete()
-        {
-            foreach (var column in _tables.SelectMany(z => z.Columns))
-            {
-                var nav = column as NavigationPropertyMapping;
-                if (nav != null)
-                {
-                    if(nav.Host == ReferenceHost.Child && nav.DeclaredType != this)
-                        continue;
-                    _navigationPropertyMappings.Add(column);
-                }
-                else
-                    _propertyMappings.Add(column);
-            }            
+        public void AddProperty(PropertyMapping propertyMapping)
+        {            
+            _propertyMappings.Add(propertyMapping);
         }
     }
 }

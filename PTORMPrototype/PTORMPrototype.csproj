@@ -42,9 +42,11 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Mapping\Configuration\EntityTable.cs" />
     <Compile Include="Mapping\Configuration\FluentConfiguration.cs" />
     <Compile Include="Mapping\Configuration\HierarchyInfo.cs" />
     <Compile Include="Mapping\Configuration\NavigationPropertyMapping.cs" />
+    <Compile Include="Mapping\Configuration\PrimitiveListTable.cs" />
     <Compile Include="Mapping\Configuration\SqlType.cs" />
     <Compile Include="Mapping\Configuration\TypeMappingConfig.cs" />
     <Compile Include="Mapping\CreatingDelegate.cs" />
@@ -56,9 +58,10 @@
     <Compile Include="Mapping\Configuration\PropertyMapping.cs" />
     <Compile Include="Mapping\Configuration\PropertyMappingCollection.cs" />
     <Compile Include="Mapping\Configuration\ReferenceHost.cs" />
-    <Compile Include="Mapping\Configuration\TableInfo.cs" />
+    <Compile Include="Mapping\Configuration\Table.cs" />
     <Compile Include="Mapping\Configuration\TypeMappingInfo.cs" />
     <Compile Include="Query\ColumnCollectionPart.cs" />
+    <Compile Include="Query\ExpansionPart.cs" />
     <Compile Include="Query\QueryBuilder.cs" />
     <Compile Include="Query\QueryPlan.cs" />
     <Compile Include="Query\SelectClause.cs" />
