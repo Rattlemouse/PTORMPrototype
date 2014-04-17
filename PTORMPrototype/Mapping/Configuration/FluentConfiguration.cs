@@ -170,7 +170,7 @@ namespace PTORMPrototype.Mapping.Configuration
                 }
             }            
             var baseObjects = hierarchyDict[typeof (object)];
-            Parallel.ForEach(baseObjects, typeMappingInfo =>
+            foreach(var typeMappingInfo in baseObjects)
             {
                 typeMappingInfo.Hierarchy = new HierarchyInfo {BaseType = typeMappingInfo};
                 typeMappingInfo.Hierarchy.AddMapping(typeMappingInfo);
@@ -186,7 +186,7 @@ namespace PTORMPrototype.Mapping.Configuration
                         hierarchyQueue.Enqueue(childMapping);
                     }
                 }
-            });
+            }
             return typeMappings;
         }
 

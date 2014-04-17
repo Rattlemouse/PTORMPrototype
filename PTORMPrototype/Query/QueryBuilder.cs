@@ -2,68 +2,18 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Linq;
-using System.Text;
+using System.Runtime.Remoting.Metadata.W3cXsd2001;
 using PTORMPrototype.Mapping;
 using PTORMPrototype.Mapping.Configuration;
+using PTORMPrototype.Query.Sql;
 
 namespace PTORMPrototype.Query
 {
     public class QueryBuilder
     {
-        private class AliasContext
-        {
-            readonly Dictionary<string, string> _aliases = new Dictionary<string, string>();
-            private readonly string _context;
-
-            public AliasContext(string context)
-            {
-                _context = context;
-            }
-
-            public string GetTableAlias(string tableName)
-            {
-                string alias;
-                if (_aliases.TryGetValue(tableName, out alias))
-                    return alias;
-                alias = string.Format("[{1}{0}]", _aliases.Count + 1, _context);
-                _aliases.Add(tableName, alias);
-                return alias;
-            }
-        }
-
-        private class TableContext
-        {
-            private readonly Table _table;
-            private readonly string _alias;
-
-            public TableContext(Table table, string alias)
-            {
-                _table = table;
-                _alias = alias;
-            }
-
-            public Table Table
-            {
-                get { return _table; }
-            }
-
-            public string Alias
-            {
-                get { return _alias; }
-            }
-        }
-
-
         private readonly IMetaInfoProvider _metaInfoProvider;
-        private int _currentParameter = 0;
         private readonly Dictionary<string, AliasContext> _contextAliases = new Dictionary<string, AliasContext>();
-
-
-        private readonly List<string> _selectClauses = new List<string>();
-        private string _fromClause;
-        private readonly List<string> _joinClauses = new List<string>();
-        private readonly List<string> _whereClauses = new List<string>();
-
+       
         public QueryBuilder(IMetaInfoProvider metaInfoProvider)
         {
             if (metaInfoProvider == null) 
@@ -88,7 +38,7 @@ namespace PTORMPrototype.Query
             var mainTable = tables.First();
             var mainTableContext = GetTableContext(mainTable, "M");
             var selectParts = new List<SelectPart>();
-            SelectAll(mainTableContext).From(mainTableContext);
+            var selectBuilder = new SelectSqlBuilder(mainTableContext).SelectAll(mainTableContext);
             var mainPart = new TypePart
             {
                 Type =  typeMapping,
@@ -99,29 +49,30 @@ namespace PTORMPrototype.Query
             {
                 foreach (var include in includes)
                 {
-                    selectParts.AddRange(Include(mainTableContext, typeMapping, include));
+                    selectParts.AddRange(Include(selectBuilder, mainTableContext, typeMapping, include));
                 }
             }
             foreach (var table in tables.Skip(1))
             {                
                 var secondContext = GetTableContext(table, "T");
-                SelectAll(secondContext);
-                InnerJoin(mainTableContext, secondContext, table.IdentityColumn.ColumnName, table.IdentityColumn.ColumnName);
+                selectBuilder
+                    .SelectAll(secondContext)
+                    .InnerJoin(mainTableContext, secondContext, table.IdentityColumn.ColumnName, table.IdentityColumn.ColumnName);
             }
             foreach (var s in paths)
             {
-                Where(GetPredicate(mainTableContext, typeMapping, s));
+                BuildSelectPredicate(selectBuilder, mainTableContext, typeMapping, s);
             }
            
             var selectClause = new SelectClause{ Parts = selectParts.ToArray() };
             return new QueryPlan
             {
-                SqlString = ToString(),
+                SqlString = selectBuilder.GetSql(),
                 SelectClause = selectClause
             };
         }
 
-        private IEnumerable<SelectPart> Include(TableContext mainTableContext, TypeMappingInfo typeMapping, string include)
+        private IEnumerable<SelectPart> Include(SelectSqlBuilder bulder, TableContext mainTableContext, TypeMappingInfo typeMapping, string include)
         {
             var fields = include.Split('.');
             var currentType = typeMapping;
@@ -132,30 +83,30 @@ namespace PTORMPrototype.Query
                 if (navProperty.Table is PrimitiveListTable)
                 {
                     var listContext = GetTableContext(navProperty.Table, "S");
-                    SelectAll(listContext);
-                    LeftOuterJoin(context, listContext, ((EntityTable)context.Table).IdentityColumn.ColumnName, navProperty.Table.Columns.First().ColumnName);                    
+                    bulder.SelectAll(listContext);
+                    bulder.LeftOuterJoin(context, listContext, ((EntityTable)context.Table).IdentityColumn.ColumnName, navProperty.Table.Columns.First().ColumnName);                    
                     yield return new ExpansionPart
                     {                        
                         Table = navProperty.Table,
                         CollectingType = currentType,
                         CollectingProperty = navProperty
                     };
-                    yield break;
+                    break;
                 }                
                 
                 //todo: no primitive collections totally and no inheritance lookup
                 var targetType = navProperty.TargetType;
                 var tableInfo = targetType.Tables.OfType<EntityTable>().First();
                 var nextcontext = GetTableContext(tableInfo, "S");
-                SelectAll(nextcontext);
+                bulder.SelectAll(nextcontext);
 
                 if (navProperty.Host == ReferenceHost.Parent)
                 {
-                    LeftOuterJoin(context, nextcontext, navProperty.ColumnName, tableInfo.IdentityColumn.ColumnName);
+                    bulder.LeftOuterJoin(context, nextcontext, navProperty.ColumnName, tableInfo.IdentityColumn.ColumnName);
                 }
                 else if (navProperty.Host == ReferenceHost.Child)
                 {
-                    LeftOuterJoin(context, nextcontext, ((EntityTable) context.Table).IdentityColumn.ColumnName, navProperty.ColumnName);
+                    bulder.LeftOuterJoin(context, nextcontext, ((EntityTable)context.Table).IdentityColumn.ColumnName, navProperty.ColumnName);
                 }
                 else
                     throw new NotImplementedException();
@@ -171,18 +122,20 @@ namespace PTORMPrototype.Query
             }
         }
 
-        private string GetPredicate(TableContext initialContext, TypeMappingInfo type, string s)
+        private void BuildSelectPredicate(SelectSqlBuilder builder, TableContext initialContext, TypeMappingInfo type, string s)
         {
             var fields = s.Split('.');
             var currentType = type;
             var context = initialContext;
+            string predicate;
             foreach (var navigationField in fields.Take(fields.Length - 1))
             {
                 var navProperty = (NavigationPropertyMapping) type.GetProperty(navigationField);
                 var table = navProperty.Table;
                 if (table is PrimitiveListTable)
                 {
-                    return GetForPrimitiveList(table, context);
+                    builder.Where(PredicateForPrimitiveList(builder, table, context));                    
+                    return;
                 }
                 currentType = navProperty.TargetType;
                 //todo: no primitive collections totally and no inheritance lookup
@@ -190,11 +143,11 @@ namespace PTORMPrototype.Query
                 var nextcontext = GetTableContext(tableInfo, "T");
                 if (navProperty.Host == ReferenceHost.Parent)
                 {
-                    InnerJoin(context, nextcontext, navProperty.ColumnName, tableInfo.IdentityColumn.ColumnName);
+                    builder.InnerJoin(context, nextcontext, navProperty.ColumnName, tableInfo.IdentityColumn.ColumnName);
                 }
                 else if (navProperty.Host == ReferenceHost.Child)
                 {
-                    InnerJoin(context, nextcontext, ((EntityTable) context.Table).IdentityColumn.ColumnName, navProperty.ColumnName);
+                    builder.InnerJoin(context, nextcontext, ((EntityTable)context.Table).IdentityColumn.ColumnName, navProperty.ColumnName);
                 }
                 else
                     throw new NotImplementedException();
@@ -205,115 +158,132 @@ namespace PTORMPrototype.Query
             var tbl = property.Table;
             if (tbl is PrimitiveListTable)
             {
-                return GetForPrimitiveList(tbl, context);
+                predicate = PredicateForPrimitiveList(builder, tbl, context);
+            }
+            else
+            {
+                predicate = builder.GetEquality(GetTableContext(tbl, tbl == initialContext.Table ? "M" : "T"), property.ColumnName);
             }
             //todo: think of context and inheritance
-            return string.Format("{0} = {1}", Column(GetTableContext(tbl, tbl == initialContext.Table ? "M" : "T"), property.ColumnName), GetNextParameter());
+            builder.Where(predicate);
         }
 
-        private string GetForPrimitiveList(Table table, TableContext context)
+        private string PredicateForPrimitiveList(SelectSqlBuilder builder, Table tbl, TableContext context)
         {
-            var listContext = GetTableContext(table, "T");
-            InnerJoin(context, listContext, ((EntityTable) context.Table).IdentityColumn.ColumnName, table.Columns[0].ColumnName);
-            return string.Format("{0} = {1}", Column(listContext, table.Columns[1].ColumnName), GetNextParameter());
+            var listContext = GetTableContext(tbl, "T");
+            builder.InnerJoin(context, listContext, ((EntityTable) context.Table).IdentityColumn.ColumnName,
+                tbl.Columns[0].ColumnName);
+            return builder.GetEquality(listContext, tbl.Columns[1].ColumnName);            
         }
 
-        private static string Column(TableContext table, string column)
-        {
-            return string.Format("{0}.[{1}]", table.Alias, column);
-        }
 
-        private QueryBuilder InnerJoin(TableContext firstContext, TableContext secondContext, string name, string identityField)
+        public UpdatePlan GetUpdate(string type, string[] properties)
         {
-            _joinClauses.Add(string.Format("INNER JOIN [{0}] AS {1} ON {2} = {3}",
-                  secondContext.Table.Name,
-                  secondContext.Alias,
-                Column(firstContext, name),
-                Column(secondContext, identityField)
-                ));
-            return this;
-        }
-
-        private QueryBuilder LeftOuterJoin(TableContext firstContext, TableContext secondContext, string name, string identityField)
-        {
-            _joinClauses.Add(string.Format("LEFT OUTER JOIN [{0}] AS {1} ON {2} = {3}",
-                  secondContext.Table.Name,
-                  secondContext.Alias,
-                Column(firstContext, name),
-                Column(secondContext, identityField)
-            ));
-            return this;
-        }
-
-        private string GetNextParameter()
-        {
-            return string.Format("@p{0}", _currentParameter++);
-        }
-
-        private QueryBuilder Where(string getEqualPredicate)
-        {
-            _whereClauses.Add(getEqualPredicate);
-            return this;
-        }
-
-        private QueryBuilder From(TableContext context)
-        {
-            _fromClause = "FROM [" + context.Table.Name + "] AS " + context.Alias;
-            return this;
-        }
-
-        private QueryBuilder SelectAll(TableContext context)
-        {
-            this._selectClauses.Add(string.Format("{0}.*", context.Alias));
-            return this;
-        }
-
-        public override string ToString()
-        {
-            var builder = new StringBuilder("SELECT ");
-            builder.Append(string.Join(", ", _selectClauses));
-            builder.Append(" ");
-            builder.Append(_fromClause);
-            foreach (var joinClause in _joinClauses)
+            var typeMapping = _metaInfoProvider.GetTypeMapping(type);            
+            var updateParts = new List<UpdatePart>();
+            var props = properties.Select(typeMapping.GetProperty).GroupBy(z => z.Table);
+            foreach (var propGroup in props)
             {
-                builder.Append(" ");
-                builder.Append(joinClause);
-            }
-            if (_whereClauses.Count > 0)
+                UpdatePart updatePart;
+                if (propGroup.Key is EntityTable)
+                {
+                    updatePart = GetUpdateForEntity((EntityTable) propGroup.Key, propGroup);
+                }
+                else
+                {
+                    var primitiveListTable = propGroup.Key as PrimitiveListTable;
+                    if (primitiveListTable != null)
+                    {
+                        updateParts.Add(GetDeleteForPrimitiveListTabe(primitiveListTable));
+                        updatePart = GetInsertForPrimitiveListTable(primitiveListTable);
+                    }
+                    else
+                    {
+                        throw new NotImplementedException();
+                    }
+                }
+                updateParts.Add(updatePart);
+                //todo: don't like this line :(
+                _contextAliases.Clear();
+            }            
+            return new UpdatePlan {Parts = updateParts};
+        }
+
+        private UpdatePart GetDeleteForPrimitiveListTabe(PrimitiveListTable primitiveListTable)
+        {
+            var mainTableContext = GetTableContext(primitiveListTable, "M");
+            var builder = new DeleteSqlBuilder(mainTableContext);
+            builder.Where(builder.GetEquality(mainTableContext, primitiveListTable.Columns.First().ColumnName));
+            return new UpdatePart {SqlString = builder.GetSql()};
+        }
+
+
+        private UpdatePart GetUpdateForEntity(EntityTable mainTable,IEnumerable<PropertyMapping> propGroup)
+        {
+            var mainTableContext = GetTableContext(mainTable, "M");
+            var updatebuilder = new UpdateSqlBuilder(mainTableContext);
+            updatebuilder.Where(
+                updatebuilder.GetEquality(mainTableContext, mainTable.IdentityColumn.ColumnName)
+                );
+            foreach (var prop in propGroup)
             {
-                builder.Append(" WHERE ");
-                builder.Append(string.Join(" AND ", _whereClauses));
+                updatebuilder.Set(mainTableContext, prop.ColumnName);
             }
-            return builder.ToString();
+            return new UpdatePart {SqlString = updatebuilder.GetSql()};            
+        }
+
+        public UpdatePlan GetInsert(string type, string[] properties)
+        {
+            var typeMapping = _metaInfoProvider.GetTypeMapping(type);
+            var updateParts = new List<UpdatePart>();
+            var props = typeMapping.Tables.OfType<EntityTable>().Select(z => z.IdentityColumn).Concat(properties.Select(typeMapping.GetProperty)).GroupBy(z => z.Table);
+            foreach (var propGroup in props)
+            {
+                UpdatePart updatePart;
+                if (propGroup.Key is EntityTable)
+                {
+                    updatePart = GetInsertForEntity((EntityTable)propGroup.Key, propGroup);
+                }
+                else if (propGroup.Key is PrimitiveListTable)
+                {                    
+                    updatePart = GetInsertForPrimitiveListTable((PrimitiveListTable)propGroup.Key);
+                }
+                else
+                {
+                    throw new NotImplementedException();
+                }
+                updateParts.Add(updatePart);                
+            }
+            return new UpdatePlan { Parts = updateParts };
+        }
+
+        private UpdatePart GetInsertForPrimitiveListTable(PrimitiveListTable primitiveListTable)
+        {
+            var insertBuilder = new InsertSqlBuilder(primitiveListTable);            
+            foreach (var prop in primitiveListTable.Columns)
+            {
+                insertBuilder.AddInsert(prop.ColumnName);
+            }
+            var updatePart = new UpdatePart { SqlString = insertBuilder.GetSql() };
+            return updatePart;
+        }
+
+        private static UpdatePart GetInsertForEntity(EntityTable mainTable, IEnumerable<PropertyMapping> propGroup)
+        {
+            var insertBuilder = new InsertSqlBuilder(mainTable);            
+            if (mainTable.HasDiscriminator)
+                insertBuilder.AddInsert(mainTable.DiscriminatorColumn);
+            foreach (var prop in propGroup)
+            {
+                insertBuilder.AddInsert(prop.ColumnName);
+            }
+            var updatePart = new UpdatePart {SqlString = insertBuilder.GetSql()};
+            return updatePart;
         }
 
         public string GetCreateTable(Type type)
         {
-            var typeMapping = _metaInfoProvider.GetTypeMapping(type.Name);
-            var table = typeMapping.Tables.OfType<EntityTable>().Last();            
-            return string.Join("\n", new [] { CreateTable(table) }.Concat(typeMapping.Tables.OfType<PrimitiveListTable>().Select(CreateTable)));
-        }
-
-        private static string CreateTable(Table table)
-        {
-            var stringBuilder = new StringBuilder("CREATE TABLE ");
-            stringBuilder.AppendFormat("[{0}]", table.Name);
-            stringBuilder.Append(" (");
-            var columns = new List<string>(table.Columns.Count + 2);               
-            var entityTabe = table as EntityTable;
-            if (entityTabe != null)
-            {
-                columns.Add(string.Format("[{0}] {1} PRIMARY KEY", entityTabe.IdentityColumn.ColumnName,
-                    entityTabe.IdentityColumn.SqlType.ToString().ToUpper()));
-                if (entityTabe.HasDiscriminator)
-                {
-                    columns.Add(string.Format("[{0}] INT NOT NULL", entityTabe.DiscriminatorColumn));
-                }                                
-            }
-            columns.AddRange(table.Columns.Select(column => string.Format("[{0}] {1}", column.ColumnName, column.SqlType.ToString().ToUpper())));
-            stringBuilder.Append(string.Join(", ", columns));
-            stringBuilder.Append(");");
-            return stringBuilder.ToString();
+            return new CreateTableBuilder(_metaInfoProvider.GetTypeMapping(type.Name)).GetSql();
         }
     }
 }

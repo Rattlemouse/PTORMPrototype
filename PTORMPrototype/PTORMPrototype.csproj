@@ -60,14 +60,25 @@
     <Compile Include="Mapping\Configuration\ReferenceHost.cs" />
     <Compile Include="Mapping\Configuration\Table.cs" />
     <Compile Include="Mapping\Configuration\TypeMappingInfo.cs" />
+    <Compile Include="Query\AliasContext.cs" />
     <Compile Include="Query\ColumnCollectionPart.cs" />
+    <Compile Include="Query\Sql\CreateTableBuilder.cs" />
     <Compile Include="Query\ExpansionPart.cs" />
+    <Compile Include="Query\Sql\DeleteSqlBuilder.cs" />
+    <Compile Include="Query\Sql\FilteredSqlBuilder.cs" />
+    <Compile Include="Query\Sql\InsertSqlBuilder.cs" />
     <Compile Include="Query\QueryBuilder.cs" />
     <Compile Include="Query\QueryPlan.cs" />
     <Compile Include="Query\SelectClause.cs" />
     <Compile Include="Query\SelectPart.cs" />
+    <Compile Include="Query\Sql\SelectSqlBuilder.cs" />
+    <Compile Include="Query\Sql\SqlBuilder.cs" />
     <Compile Include="Query\SubTypePart.cs" />
+    <Compile Include="Query\TableContext.cs" />
     <Compile Include="Query\TypePart.cs" />
+    <Compile Include="Query\UpdatePart.cs" />
+    <Compile Include="Query\UpdatePlan.cs" />
+    <Compile Include="Query\Sql\UpdateSqlBuilder.cs" />
     <Compile Include="TypeHelper.cs" />
   </ItemGroup>
   <ItemGroup>

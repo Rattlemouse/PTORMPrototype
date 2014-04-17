@@ -11,7 +11,7 @@ public class BaseClass_<#=i#>
 	public string BaseProperty { get;set;}
 }
 
-	<# for(var d = 0; d < 5; d++) {#>
+	<# for(var d = 0; d < 2; d++) {#>
 		public class Derived<#=i#>_<#=d#> : BaseClass_<#=i#>
 		{
 			<# for(var j = 0; j < 15; j++) {#>
