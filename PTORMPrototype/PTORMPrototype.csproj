@@ -53,6 +53,7 @@
     <Compile Include="Mapping\FillingDelegate.cs" />
     <Compile Include="Mapping\IMetaInfoProvider.cs" />
     <Compile Include="Mapping\SqlValueMapper.cs" />
+    <Compile Include="Mapping\WriteMapper.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Mapping\Configuration\PropertyMapping.cs" />

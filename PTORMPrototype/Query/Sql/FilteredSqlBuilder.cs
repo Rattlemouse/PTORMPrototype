@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 
 namespace PTORMPrototype.Query.Sql
 {
@@ -10,6 +11,14 @@ namespace PTORMPrototype.Query.Sql
         {
             WhereClauses.Add(getEqualPredicate);
             return this;
+        }
+
+
+        public string Or(ICollection<string> predicates)
+        {
+            if (predicates.Count == 1)
+                return predicates.First();
+            return string.Format("({0})", string.Join(" OR ", predicates));
         }
     }
 }

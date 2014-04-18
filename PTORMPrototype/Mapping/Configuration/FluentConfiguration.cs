@@ -186,7 +186,8 @@ namespace PTORMPrototype.Mapping.Configuration
                     var currentNode = hierarchyQueue.Dequeue();
                     foreach (var childMapping in hierarchyDict[currentNode.Type])
                     {
-                        childMapping.RefillFromParent(currentNode);
+                        currentNode.Children.Add(childMapping);
+                        childMapping.RefillFromParent(currentNode);                        
                         currentNode.Hierarchy.AddMapping(childMapping);
                         hierarchyQueue.Enqueue(childMapping);
                     }

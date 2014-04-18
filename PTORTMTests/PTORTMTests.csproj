@@ -62,6 +62,9 @@
     <Compile Include="TestClasses\Collections\ClassWithIntArr.cs" />
     <Compile Include="TestClasses\Collections\CollectionItem.cs" />
     <Compile Include="TestClasses\DerivedClass.cs" />
+    <Compile Include="TestClasses\Inheritance\Child.cs" />
+    <Compile Include="TestClasses\Inheritance\ChildDerived.cs" />
+    <Compile Include="TestClasses\Inheritance\Parent.cs" />
     <Compile Include="TestClasses\NavigationedClass.cs" />
     <Compile Include="QueryAndMapperTest.cs" />
     <Compile Include="TestClasses\TestProvider.cs" />

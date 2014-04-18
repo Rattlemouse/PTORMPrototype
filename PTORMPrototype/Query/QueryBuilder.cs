@@ -127,55 +127,114 @@ namespace PTORMPrototype.Query
         private void BuildSelectPredicate(SelectSqlBuilder builder, TableContext initialContext, TypeMappingInfo type, string s)
         {
             var fields = s.Split('.');
-            var currentType = type;
-            var context = initialContext;
-            string predicate;
-            foreach (var navigationField in fields.Take(fields.Length - 1))
+            var contexts = GetContexts(builder, type, initialContext, fields.Take(fields.Length - 1).ToList());
+            var searchField = fields.Last();
+            var parameter = builder.GetNextParameter();
+            var predicates = new List<string>();
+            foreach (var contextTuple in contexts)
             {
-                var navProperty = (NavigationPropertyMapping) type.GetProperty(navigationField);
-                var table = navProperty.Table;
-                if (table is PrimitiveListTable)
+                var currentType = contextTuple.Item1;                
+                if (!currentType.HasProperty(searchField))
+                    continue;
+                var context = contextTuple.Item2;
+                var property = currentType.GetProperty(searchField);
+                var tbl = property.Table;
+                string predicate;
+                if (tbl is PrimitiveListTable)
                 {
-                    builder.Where(PredicateForPrimitiveList(builder, table, context));                    
-                    return;
-                }
-                currentType = navProperty.TargetType;
-                //todo: no primitive collections totally and no inheritance lookup
-                var tableInfo = currentType.Tables.OfType<EntityTable>().First();
-                var nextcontext = GetTableContext(tableInfo, "T");
-                if (navProperty.Host == ReferenceHost.Parent)
-                {
-                    builder.InnerJoin(context, nextcontext, navProperty.ColumnName, tableInfo.IdentityColumn.ColumnName);
-                }
-                else if (navProperty.Host == ReferenceHost.Child)
-                {
-                    builder.InnerJoin(context, nextcontext, ((EntityTable)context.Table).IdentityColumn.ColumnName, navProperty.ColumnName);
+                    predicate = PredicateForPrimitiveList(builder, tbl, context, parameter);
                 }
                 else
-                    throw new NotImplementedException();
+                {
+                    predicate = builder.GetEquality(context, property.ColumnName, parameter);
+                }
                 
-                context = nextcontext;
+                predicates.Add(predicate);
             }
-            var property = currentType.GetProperty(fields.Last());
-            var tbl = property.Table;
-            if (tbl is PrimitiveListTable)
+            if (predicates.Count == 0)
+                throw new InvalidOperationException(string.Format("Wrong query, no types of {1} with field {0} found", s, type.Type));
+            //todo: think of context and inheritance
+            builder.Where(builder.Or(predicates));
+        }
+
+        private IEnumerable<Tuple<TypeMappingInfo, TableContext>> GetContexts(SelectSqlBuilder builder, TypeMappingInfo type, TableContext context, IList<string> properties)
+        {
+            if (properties.Count == 0)
             {
-                predicate = PredicateForPrimitiveList(builder, tbl, context);
+                yield return Tuple.Create(type, context);                
+                yield break;
+            }
+            var currentProperty = properties[0];
+            var remainingProperties = properties.Skip(1).ToList();
+            if (type.HasProperty(currentProperty))
+            {
+                var prefix = context.Alias + "B0T";
+                var navProperty = (NavigationPropertyMapping) type.GetProperty(currentProperty);                
+                foreach (var tuple in GetContextFromType(builder, navProperty, prefix, context, remainingProperties))
+                {
+                    yield return tuple;
+                }                
             }
             else
             {
-                predicate = builder.GetEquality(GetTableContext(tbl, tbl == initialContext.Table ? "M" : "T"), property.ColumnName, builder.GetNextParameter());
+                var branchNumber = 1;
+                foreach (var childType in type.GetNearestChildrenThatHaveProperty(currentProperty))
+                {                    
+                    var contextPrefix = context.Alias + "B" + branchNumber + "T";
+                    var childTablesLeft = childType.Tables.SkipWhile(z => z != context.Table).ToList();
+                    var baseChildTable = childTablesLeft[0];
+                    var previousContext = GetTableContext(baseChildTable, contextPrefix);
+                    builder.LeftOuterJoin(context, previousContext,
+                        ((EntityTable)context.Table).IdentityColumn.ColumnName,
+                        ((EntityTable)previousContext.Table).IdentityColumn.ColumnName);
+                    foreach (var tableToJoin in childTablesLeft.Skip(1))
+                    {
+                        var currentContext = GetTableContext(tableToJoin, contextPrefix);
+                        builder.InnerJoin(previousContext, currentContext,
+                            ((EntityTable) previousContext.Table).IdentityColumn.ColumnName,
+                            ((EntityTable) currentContext.Table).IdentityColumn.ColumnName);
+                        previousContext = currentContext;
+                    }
+                    var navProperty = (NavigationPropertyMapping) childType.GetProperty(currentProperty);
+                    foreach (
+                        var tuple1 in
+                            GetContextFromType(builder, navProperty, contextPrefix, previousContext, remainingProperties)
+                        )
+                    {
+                        yield return tuple1;
+                    }
+                    branchNumber++;
+                }
             }
-            //todo: think of context and inheritance
-            builder.Where(predicate);
         }
 
-        private string PredicateForPrimitiveList(SelectSqlBuilder builder, Table tbl, TableContext context)
+        private IEnumerable<Tuple<TypeMappingInfo, TableContext>> GetContextFromType(SelectSqlBuilder builder, NavigationPropertyMapping navProperty,
+            string contextPrefix, TableContext previousContext, List<string> remainingProperties)
+        {            
+            var currentType = navProperty.TargetType;
+            var tableInfo = currentType.Tables.OfType<EntityTable>().First();
+            var tableContext = GetTableContext(tableInfo, contextPrefix);
+            if (navProperty.Host == ReferenceHost.Parent)
+            {
+                builder.InnerJoin(previousContext, tableContext, navProperty.ColumnName, tableInfo.IdentityColumn.ColumnName);
+            }
+            else if (navProperty.Host == ReferenceHost.Child)
+            {
+                builder.InnerJoin(previousContext, tableContext, ((EntityTable) previousContext.Table).IdentityColumn.ColumnName,
+                    navProperty.ColumnName);
+            }
+            foreach (var tuple in GetContexts(builder, currentType, tableContext, remainingProperties))
+            {
+                yield return tuple;
+            }
+        }
+
+        private string PredicateForPrimitiveList(SelectSqlBuilder builder, Table tbl, TableContext context, string parameter)
         {
             var listContext = GetTableContext(tbl, "T");
             builder.InnerJoin(context, listContext, ((EntityTable) context.Table).IdentityColumn.ColumnName,
                 tbl.Columns[0].ColumnName);
-            return builder.GetEquality(listContext, tbl.Columns[1].ColumnName, builder.GetNextParameter());            
+            return builder.GetEquality(listContext, tbl.Columns[1].ColumnName, parameter);            
         }
 
 

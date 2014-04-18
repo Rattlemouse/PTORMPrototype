@@ -4,6 +4,7 @@ using PTORMPrototype.Mapping.Configuration;
 using PTORMPrototype.Query;
 using PTORTMTests.TestClasses;
 using PTORTMTests.TestClasses.Collections;
+using PTORTMTests.TestClasses.Inheritance;
 
 namespace PTORTMTests
 {
@@ -61,7 +62,7 @@ namespace PTORTMTests
             {
                 "Collection.Property"
             });
-            Assert.AreEqual("SELECT [M1].* FROM [ClassWithCollection] AS [M1] INNER JOIN [CollectionItem] AS [T1] ON [M1].[ObjectId] = [T1].[ClassWithCollection_Collection] WHERE [T1].[Property] = @p0", plan.SqlString);
+            Assert.AreEqual("SELECT [M1].* FROM [ClassWithCollection] AS [M1] INNER JOIN [CollectionItem] AS [M1B0T1] ON [M1].[ObjectId] = [M1B0T1].[ClassWithCollection_Collection] WHERE [M1B0T1].[Property] = @p0", plan.SqlString);
         }
 
         [Test]
@@ -144,6 +145,48 @@ namespace PTORTMTests
             Assert.IsTrue(plan.SelectClause.Parts.OfType<TypePart>().All(z => z.Tables.Count == 2));
         }
 
+        [Test]
+        public void TestSimpleQueryWithDerivedProperty()
+        {
+            const string path = "Prop2";
+            const string derivedType = "DerivedClass";
+            var types = FluentConfiguration.Start()
+                .DefaultIdProperty(IdentityField)
+                .DefaultDiscriminatorColumnName(DefaultDiscriminator)
+                .AddType<BaseClass>(z => z.AllProperties())
+                .AddType<DerivedClass>(z => z.AllProperties())
+                .GenerateTypeMappings();
+            var provider = new TestProvider(types);
+            var queryBuilder = new QueryBuilder(provider);
+            var plan = queryBuilder.GetQuery(derivedType, new[]
+            {
+                path
+            });
+            Assert.AreEqual("SELECT [M1].*, [T1].* FROM [BaseClass] AS [M1] INNER JOIN [DerivedClass] AS [T1] ON [M1].[ObjectId] = [T1].[ObjectId] WHERE [T1].[Prop2] = @p0", plan.SqlString);
+            Assert.AreEqual(1, plan.SelectClause.Parts.OfType<TypePart>().Count());
+            Assert.IsTrue(plan.SelectClause.Parts.OfType<TypePart>().All(z => z.Tables.Count == 2));
+        }
+
+        [Test]
+        public void TestQueryWithDerivedChildProperty()
+        {            
+            var types = FluentConfiguration.Start()
+                .DefaultIdProperty(IdentityField)
+                .DefaultDiscriminatorColumnName(DefaultDiscriminator)
+                .AddType<Parent>(z => z.AllProperties())
+                .AddType<Child>(z => z.AllProperties())
+                .AddType<ChildDerived>(z => z.AllProperties())
+                .GenerateTypeMappings();
+            var provider = new TestProvider(types);
+            var queryBuilder = new QueryBuilder(provider);
+            var plan = queryBuilder.GetQuery("Parent", new[]
+            {
+                "Child.DerivedProperty"
+            });
+            Assert.AreEqual("SELECT [M1].* FROM [Parent] AS [M1] INNER JOIN [Child] AS [T1] ON [M1].[Child] = [T1].[ObjectId] INNER JOIN [ChildDerived] AS [T2] ON [T1].[ObjectId] = [T2].[ObjectId] WHERE [T2].[DerivedProperty] = @p0", plan.SqlString);
+            Assert.AreEqual(1, plan.SelectClause.Parts.OfType<TypePart>().Count());
+            Assert.IsTrue(plan.SelectClause.Parts.OfType<TypePart>().All(z => z.Tables.Count == 2));
+        }
 
         [Test]
         public void TestQueryNestedClassOneToOne()
@@ -161,7 +204,7 @@ namespace PTORTMTests
             {
                 "Nav.Something"
             });
-            Assert.AreEqual("SELECT [M1].* FROM [BaseWithNavigationClass] AS [M1] INNER JOIN [NavigationedClass] AS [T1] ON [M1].[Nav] = [T1].[ObjectId] WHERE [T1].[Something] = @p0", plan.SqlString);
+            Assert.AreEqual("SELECT [M1].* FROM [BaseWithNavigationClass] AS [M1] INNER JOIN [NavigationedClass] AS [M1B0T1] ON [M1].[Nav] = [M1B0T1].[ObjectId] WHERE [M1B0T1].[Something] = @p0", plan.SqlString);
         }
 
         [Test]
@@ -180,7 +223,7 @@ namespace PTORTMTests
             {
                 "Nav.Something"
             }, new[] { "Nav" });
-            Assert.AreEqual("SELECT [M1].*, [S1].* FROM [BaseWithNavigationClass] AS [M1] LEFT OUTER JOIN [NavigationedClass] AS [S1] ON [M1].[Nav] = [S1].[ObjectId] INNER JOIN [NavigationedClass] AS [T1] ON [M1].[Nav] = [T1].[ObjectId] WHERE [T1].[Something] = @p0", plan.SqlString);
+            Assert.AreEqual("SELECT [M1].*, [S1].* FROM [BaseWithNavigationClass] AS [M1] LEFT OUTER JOIN [NavigationedClass] AS [S1] ON [M1].[Nav] = [S1].[ObjectId] INNER JOIN [NavigationedClass] AS [M1B0T1] ON [M1].[Nav] = [M1B0T1].[ObjectId] WHERE [M1B0T1].[Something] = @p0", plan.SqlString);
             Assert.AreEqual(2, plan.SelectClause.Parts.OfType<TypePart>().Count());
             Assert.AreEqual(1, plan.SelectClause.Parts.OfType<SubTypePart>().Count());
             Assert.IsTrue(plan.SelectClause.Parts.OfType<TypePart>().All(z => z.Tables.Count == 1));
