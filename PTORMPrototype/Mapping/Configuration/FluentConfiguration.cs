@@ -96,7 +96,12 @@ namespace PTORMPrototype.Mapping.Configuration
                 myTable.IdentityColumn.Table = myTable;
                 if (type.BaseType == typeof (object))
                 {
-                    myTable.DiscriminatorColumn = _defaultDiscriminatorColumnName;
+                    myTable.DiscriminatorColumn = new PropertyMapping
+                        {
+                            ColumnName = _defaultDiscriminatorColumnName,
+                            SqlType = new SqlType(SqlDbType.Int, false),
+                            Table = myTable
+                        };
                 }
                 mappingInfo.Tables.Add(myTable);
             }

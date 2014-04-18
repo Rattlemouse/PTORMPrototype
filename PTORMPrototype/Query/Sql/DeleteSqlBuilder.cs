@@ -8,7 +8,7 @@ namespace PTORMPrototype.Query.Sql
 
         public DeleteSqlBuilder(TableContext mainTableContext)
         {
-            _deleteClause = string.Format("DELETE FROM {0} AS {1}", Escape(mainTableContext.Table.Name), Escape(mainTableContext.Alias));
+            _deleteClause = string.Format("DELETE FROM {1} FROM {0} AS {1}", Escape(mainTableContext.Table.Name), Escape(mainTableContext.Alias));
         }
         public override string GetSql()
         {

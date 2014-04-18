@@ -22,10 +22,12 @@ namespace PTORMPrototype.Query.Sql
             return string.Format("{0} ({1}) VALUES({2})", _insertClause, string.Join(", ", _insertProps), string.Join(", ", _insertParams));
         }
 
-        public void AddInsert(string columnName)
+        public string AddInsert(string columnName)
         {
             _insertProps.Add(Escape(columnName));
-            _insertParams.Add(GetNextParameter());
+            string nextParameter = GetNextParameter();
+            _insertParams.Add(nextParameter);
+            return nextParameter;
         }
 
 

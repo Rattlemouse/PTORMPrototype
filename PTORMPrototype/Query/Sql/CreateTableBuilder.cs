@@ -36,7 +36,7 @@ namespace PTORMPrototype.Query.Sql
                     entityTabe.IdentityColumn.SqlType.ToString().ToUpper()));
                 if (entityTabe.HasDiscriminator)
                 {
-                    columns.Add(string.Format("[{0}] INT NOT NULL", entityTabe.DiscriminatorColumn));
+                    columns.Add(string.Format("[{0}] INT NOT NULL", entityTabe.DiscriminatorColumn.ColumnName));
                 }
             }
             columns.AddRange(table.Columns.Select(column => string.Format("[{0}] {1}", column.ColumnName, column.SqlType.ToString().ToUpper())));

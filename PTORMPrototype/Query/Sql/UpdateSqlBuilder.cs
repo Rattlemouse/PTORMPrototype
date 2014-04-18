@@ -7,17 +7,22 @@ namespace PTORMPrototype.Query.Sql
     {
         private readonly string _updateClause;
         private readonly List<string> _sets = new List<string>();
+        private readonly string _fromClause;
 
         public UpdateSqlBuilder(TableContext mainTableContext)
         {
-            _updateClause = string.Format("UPDATE {0} AS {1} SET", Escape(mainTableContext.Table.Name), Escape(mainTableContext.Alias));
+            string alias = Escape(mainTableContext.Alias);
+            _updateClause = string.Format("UPDATE {0} SET", alias);
+            _fromClause = string.Format(" FROM {0} AS {1}", Escape(mainTableContext.Table.Name), alias);
         }
+
         public override string GetSql()
         {
             
             var builder = new StringBuilder(_updateClause);
             builder.Append(" ");
             builder.Append(string.Join(", ", _sets));
+            builder.Append(_fromClause);
             if (WhereClauses.Count > 0)
             {
                 builder.Append(" WHERE ");
@@ -26,9 +31,11 @@ namespace PTORMPrototype.Query.Sql
             return builder.ToString();
         }
 
-        public void Set(TableContext mainTableContext, string column)
+        public string Set(TableContext mainTableContext, string column)
         {
-            _sets.Add(GetEquality(mainTableContext, column));                
+            var parm = GetNextParameter();
+            _sets.Add(GetEquality(mainTableContext, column, parm));
+            return parm;
         }    
     }
 }

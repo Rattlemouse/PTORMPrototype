@@ -15,6 +15,7 @@ using PTORTMTests.TestClasses;
 namespace PTORTMTests.MassTest
 {
     [TestFixture]
+    [Ignore("Speedup all tests")]
     public class QueryAndMapperTest : BaseSqlTest
     {
         private const string IdentityField = "ObjectId";

@@ -41,5 +41,15 @@ namespace PTORMPrototype.Mapping.Configuration
         {            
             _propertyMappings.Add(propertyMapping);
         }
+
+        public IEnumerable<NavigationPropertyMapping> GetNavigationProperties()
+        {
+            return _propertyMappings.OfType<NavigationPropertyMapping>();
+        }
+
+        public IEnumerable<PropertyMapping> GetProperties()
+        {
+            return _propertyMappings;
+        }
     }
 }

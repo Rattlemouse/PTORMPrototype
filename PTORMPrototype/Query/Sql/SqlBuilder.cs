@@ -35,12 +35,13 @@ namespace PTORMPrototype.Query.Sql
 
         public string GetEquality(TableContext table, string column, TableContext table2, string column2)
         {
-            return string.Format("{0} = {1}", Column(table, column), Column(table2, column2));
+            return GetEquality(table, column, Column(table2, column2));
         }
 
-        public string GetEquality(TableContext table, string column)
+        public string GetEquality(TableContext table, string column, string operand)
         {
-            return string.Format("{0} = {1}", Column(table, column), GetNextParameter());
+            return string.Format("{0} = {1}", Column(table, column), operand);
         }
+        
     }
 }

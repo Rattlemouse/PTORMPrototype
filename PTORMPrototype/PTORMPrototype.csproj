@@ -62,6 +62,8 @@
     <Compile Include="Mapping\Configuration\TypeMappingInfo.cs" />
     <Compile Include="Query\AliasContext.cs" />
     <Compile Include="Query\ColumnCollectionPart.cs" />
+    <Compile Include="Query\Parameter.cs" />
+    <Compile Include="Query\PrimitiveInsertListPart.cs" />
     <Compile Include="Query\Sql\CreateTableBuilder.cs" />
     <Compile Include="Query\ExpansionPart.cs" />
     <Compile Include="Query\Sql\DeleteSqlBuilder.cs" />

@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
+using System.Data.SqlTypes;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.Remoting.Metadata.W3cXsd2001;
 using PTORMPrototype.Mapping;
 using PTORMPrototype.Mapping.Configuration;
@@ -162,7 +164,7 @@ namespace PTORMPrototype.Query
             }
             else
             {
-                predicate = builder.GetEquality(GetTableContext(tbl, tbl == initialContext.Table ? "M" : "T"), property.ColumnName);
+                predicate = builder.GetEquality(GetTableContext(tbl, tbl == initialContext.Table ? "M" : "T"), property.ColumnName, builder.GetNextParameter());
             }
             //todo: think of context and inheritance
             builder.Where(predicate);
@@ -173,7 +175,7 @@ namespace PTORMPrototype.Query
             var listContext = GetTableContext(tbl, "T");
             builder.InnerJoin(context, listContext, ((EntityTable) context.Table).IdentityColumn.ColumnName,
                 tbl.Columns[0].ColumnName);
-            return builder.GetEquality(listContext, tbl.Columns[1].ColumnName);            
+            return builder.GetEquality(listContext, tbl.Columns[1].ColumnName, builder.GetNextParameter());            
         }
 
 
@@ -194,14 +196,15 @@ namespace PTORMPrototype.Query
                     var primitiveListTable = propGroup.Key as PrimitiveListTable;
                     if (primitiveListTable != null)
                     {
-                        updateParts.Add(GetDeleteForPrimitiveListTabe(primitiveListTable));
-                        updatePart = GetInsertForPrimitiveListTable(primitiveListTable);
+                        updateParts.Add(GetDeleteForPrimitiveListTabe(primitiveListTable, propGroup));
+                        updatePart = GetInsertForPrimitiveListTable(primitiveListTable, propGroup);
                     }
                     else
                     {
                         throw new NotImplementedException();
                     }
                 }
+                updatePart.Table = propGroup.Key;
                 updateParts.Add(updatePart);
                 //todo: don't like this line :(
                 _contextAliases.Clear();
@@ -209,12 +212,14 @@ namespace PTORMPrototype.Query
             return new UpdatePlan {Parts = updateParts};
         }
 
-        private UpdatePart GetDeleteForPrimitiveListTabe(PrimitiveListTable primitiveListTable)
+        private UpdatePart GetDeleteForPrimitiveListTabe(PrimitiveListTable primitiveListTable, IGrouping<Table, PropertyMapping> propGroup)
         {
             var mainTableContext = GetTableContext(primitiveListTable, "M");
             var builder = new DeleteSqlBuilder(mainTableContext);
-            builder.Where(builder.GetEquality(mainTableContext, primitiveListTable.Columns.First().ColumnName));
-            return new UpdatePart {SqlString = builder.GetSql()};
+            var nextParameter = builder.GetNextParameter();
+            var equalPredicate = builder.GetEquality(mainTableContext, primitiveListTable.Columns.First().ColumnName, nextParameter);
+            builder.Where(equalPredicate);
+            return new UpdatePart { SqlString = builder.GetSql(), Parameters = { new Parameter { Name = nextParameter, Property = propGroup.First(z => z.DeclaredType != null).DeclaredType.Tables.OfType<EntityTable>().First().IdentityColumn} } };
         }
 
 
@@ -222,22 +227,34 @@ namespace PTORMPrototype.Query
         {
             var mainTableContext = GetTableContext(mainTable, "M");
             var updatebuilder = new UpdateSqlBuilder(mainTableContext);
+            var param = updatebuilder.GetNextParameter();
             updatebuilder.Where(
-                updatebuilder.GetEquality(mainTableContext, mainTable.IdentityColumn.ColumnName)
+                updatebuilder.GetEquality(mainTableContext, mainTable.IdentityColumn.ColumnName, param)
                 );
-            foreach (var prop in propGroup)
+            var updatePart = new UpdatePart
             {
-                updatebuilder.Set(mainTableContext, prop.ColumnName);
+                Parameters = {new Parameter {Property = mainTable.IdentityColumn, Name = param}}
+            };
+            foreach (var prop in propGroup)
+            {                
+                param = updatebuilder.Set(mainTableContext, prop.ColumnName);
+                updatePart.Parameters.Add(new Parameter{ Name = param, Property = prop});
             }
-            return new UpdatePart {SqlString = updatebuilder.GetSql()};            
+            updatePart.SqlString = updatebuilder.GetSql();
+            return updatePart;
         }
 
-        public UpdatePlan GetInsert(string type, string[] properties)
+        public UpdatePlan GetInsert(string type)
         {
             var typeMapping = _metaInfoProvider.GetTypeMapping(type);
             var updateParts = new List<UpdatePart>();
-            var props = typeMapping.Tables.OfType<EntityTable>().Select(z => z.IdentityColumn).Concat(properties.Select(typeMapping.GetProperty)).GroupBy(z => z.Table);
-            foreach (var propGroup in props)
+            var selectedColumns = typeMapping.Tables.SelectMany(z => z.Columns).ToList();
+            var props = typeMapping.Tables.OfType<EntityTable>().Select(z => z.IdentityColumn).Concat(
+                                                selectedColumns
+            ).Concat(
+                typeMapping.GetProperties().Where(p => selectedColumns.All(a => a.Name != p.Name))
+            ).GroupBy(z => z.Table);
+            foreach (var propGroup in props.Where(z => z.Key is PrimitiveListTable || typeMapping.Tables.Contains(z.Key) ))
             {
                 UpdatePart updatePart;
                 if (propGroup.Key is EntityTable)
@@ -245,39 +262,55 @@ namespace PTORMPrototype.Query
                     updatePart = GetInsertForEntity((EntityTable)propGroup.Key, propGroup);
                 }
                 else if (propGroup.Key is PrimitiveListTable)
-                {                    
-                    updatePart = GetInsertForPrimitiveListTable((PrimitiveListTable)propGroup.Key);
+                {
+                    updatePart = GetInsertForPrimitiveListTable((PrimitiveListTable)propGroup.Key, propGroup);
                 }
                 else
                 {
                     throw new NotImplementedException();
                 }
+                updatePart.Table = propGroup.Key;
                 updateParts.Add(updatePart);                
             }
             return new UpdatePlan { Parts = updateParts };
         }
 
-        private UpdatePart GetInsertForPrimitiveListTable(PrimitiveListTable primitiveListTable)
+        private UpdatePart GetInsertForPrimitiveListTable(PrimitiveListTable primitiveListTable, IEnumerable<PropertyMapping> propGroup)
         {
-            var insertBuilder = new InsertSqlBuilder(primitiveListTable);            
+            var insertBuilder = new InsertSqlBuilder(primitiveListTable);
+            var updatePart = new PrimitiveInsertListPart();
             foreach (var prop in primitiveListTable.Columns)
             {
-                insertBuilder.AddInsert(prop.ColumnName);
+                var paramerter = new Parameter()
+                {
+                    Name = insertBuilder.AddInsert(prop.ColumnName),
+                    Property = prop
+                };
+                updatePart.Parameters.Add(paramerter);
             }
-            var updatePart = new UpdatePart { SqlString = insertBuilder.GetSql() };
+            updatePart.SqlString = insertBuilder.GetSql();            
+            updatePart.PropertyName = propGroup.First(z => z.DeclaredType != null).Name;
             return updatePart;
         }
 
         private static UpdatePart GetInsertForEntity(EntityTable mainTable, IEnumerable<PropertyMapping> propGroup)
         {
-            var insertBuilder = new InsertSqlBuilder(mainTable);            
+            var insertBuilder = new InsertSqlBuilder(mainTable);
+            var updatePart = new UpdatePart();
             if (mainTable.HasDiscriminator)
-                insertBuilder.AddInsert(mainTable.DiscriminatorColumn);
+            {
+                propGroup = Enumerable.Repeat(mainTable.DiscriminatorColumn, 1).Concat(propGroup);
+            }            
             foreach (var prop in propGroup)
             {
-                insertBuilder.AddInsert(prop.ColumnName);
+                var paramerter = new Parameter()
+                {
+                    Name = insertBuilder.AddInsert(prop.ColumnName),
+                    Property = prop
+                };
+                updatePart.Parameters.Add(paramerter);
             }
-            var updatePart = new UpdatePart {SqlString = insertBuilder.GetSql()};
+            updatePart.SqlString = insertBuilder.GetSql();
             return updatePart;
         }
 

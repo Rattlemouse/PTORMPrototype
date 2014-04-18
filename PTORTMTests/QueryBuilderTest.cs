@@ -197,7 +197,7 @@ namespace PTORTMTests
             var queryBuilder = new QueryBuilder(provider);
             var plan = queryBuilder.GetUpdate(type, new [] { path });
             Assert.AreEqual(1, plan.Parts.Count());
-            Assert.AreEqual("UPDATE [BaseClass] AS [M1] SET [M1].[Prop1] = @p1 WHERE [M1].[ObjectId] = @p0", plan.Parts.First().SqlString);
+            Assert.AreEqual("UPDATE [M1] SET [M1].[Prop1] = @p1 FROM [BaseClass] AS [M1] WHERE [M1].[ObjectId] = @p0", plan.Parts.First().SqlString);
         }
 
         [Test]
@@ -212,20 +212,19 @@ namespace PTORTMTests
             var queryBuilder = new QueryBuilder(provider);
             var plan = queryBuilder.GetUpdate(type, new [] { "Prop1", "Prop2" });
             Assert.AreEqual(2, plan.Parts.Count());
-            Assert.AreEqual("UPDATE [BaseClass] AS [M1] SET [M1].[Prop1] = @p1 WHERE [M1].[ObjectId] = @p0", plan.Parts.First().SqlString);
-            Assert.AreEqual("UPDATE [DerivedClass] AS [M1] SET [M1].[Prop2] = @p1 WHERE [M1].[ObjectId] = @p0", plan.Parts.Last().SqlString);
+            Assert.AreEqual("UPDATE [M1] SET [M1].[Prop1] = @p1 FROM [BaseClass] AS [M1] WHERE [M1].[ObjectId] = @p0", plan.Parts.First().SqlString);
+            Assert.AreEqual("UPDATE [M1] SET [M1].[Prop2] = @p1 FROM [DerivedClass] AS [M1] WHERE [M1].[ObjectId] = @p0", plan.Parts.Last().SqlString);
         }
 
         [Test]
         public void InsertSimpleProperties()
         {
             const string type = "BaseClass";
-            const string path = "Prop1";
             var types = FluentConfiguration.Start().DefaultIdProperty(IdentityField).
                 DefaultDiscriminatorColumnName(DefaultDiscriminator).AddType<BaseClass>(z => z.AllProperties()).GenerateTypeMappings();
             var provider = new TestProvider(types);
             var queryBuilder = new QueryBuilder(provider);
-            var plan = queryBuilder.GetInsert(type, new[] { path });
+            var plan = queryBuilder.GetInsert(type);
             Assert.AreEqual(1, plan.Parts.Count());
             Assert.AreEqual("INSERT INTO [BaseClass] ([_dscr], [ObjectId], [Prop1]) VALUES(@p0, @p1, @p2)", plan.Parts.First().SqlString);
         }
@@ -241,7 +240,7 @@ namespace PTORTMTests
                .GenerateTypeMappings();
             var provider = new TestProvider(types);
             var queryBuilder = new QueryBuilder(provider);
-            var plan = queryBuilder.GetInsert(type, new[] { "Prop1", "Prop2" });
+            var plan = queryBuilder.GetInsert(type);
             Assert.AreEqual(2, plan.Parts.Count());
             Assert.AreEqual("INSERT INTO [BaseClass] ([_dscr], [ObjectId], [Prop1]) VALUES(@p0, @p1, @p2)", plan.Parts.First().SqlString);
             Assert.AreEqual("INSERT INTO [DerivedClass] ([ObjectId], [Prop2]) VALUES(@p0, @p1)", plan.Parts.Last().SqlString);
@@ -257,7 +256,7 @@ namespace PTORTMTests
                .GenerateTypeMappings();
             var provider = new TestProvider(types);
             var queryBuilder = new QueryBuilder(provider);
-            var plan = queryBuilder.GetInsert(type, new[] { "Arr" });
+            var plan = queryBuilder.GetInsert(type);
             Assert.AreEqual(2, plan.Parts.Count());
             Assert.AreEqual("INSERT INTO [ClassWithIntArr] ([_dscr], [ObjectId]) VALUES(@p0, @p1)", plan.Parts.First().SqlString);
             Assert.AreEqual("INSERT INTO [ClassWithIntArr_Arr] ([ParentId], [Value], [Index]) VALUES(@p0, @p1, @p2)", plan.Parts.Last().SqlString);
@@ -275,7 +274,7 @@ namespace PTORTMTests
             var queryBuilder = new QueryBuilder(provider);
             var plan = queryBuilder.GetUpdate(type, new[] { "Arr" });
             Assert.AreEqual(2, plan.Parts.Count());
-            Assert.AreEqual("DELETE FROM [ClassWithIntArr_Arr] AS [M1] WHERE [M1].[ParentId] = @p0", plan.Parts.First().SqlString);
+            Assert.AreEqual("DELETE FROM [M1] FROM [ClassWithIntArr_Arr] AS [M1] WHERE [M1].[ParentId] = @p0", plan.Parts.First().SqlString);
             Assert.AreEqual("INSERT INTO [ClassWithIntArr_Arr] ([ParentId], [Value], [Index]) VALUES(@p0, @p1, @p2)", plan.Parts.Last().SqlString);
         }
     }

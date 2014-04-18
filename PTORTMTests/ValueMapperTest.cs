@@ -59,7 +59,6 @@ namespace PTORTMTests
         {
             var types = FluentConfiguration.Start().DefaultIdProperty(IdentityField).AddType<BaseClass>(z => z.AllProperties()).GenerateTypeMappings();
             var provider = new TestProvider(types);    
-            
             var mapper = new SqlValueMapper();
             var reader = MockRepository.GenerateMock<IDataReader>();
             reader.Stub(z => z.GetGuid(0)).Return(Guid.NewGuid());
