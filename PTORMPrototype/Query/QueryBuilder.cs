@@ -1,10 +1,7 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.Specialized;
-using System.Data.SqlTypes;
 using System.Linq;
-using System.Reflection;
-using System.Runtime.Remoting.Metadata.W3cXsd2001;
+using System.Security.Cryptography.X509Certificates;
 using PTORMPrototype.Mapping;
 using PTORMPrototype.Mapping.Configuration;
 using PTORMPrototype.Query.Sql;
@@ -54,12 +51,13 @@ namespace PTORMPrototype.Query
                     selectParts.AddRange(Include(selectBuilder, mainTableContext, typeMapping, include));
                 }
             }
+            
             foreach (var table in tables.Skip(1))
-            {                
-                var secondContext = GetTableContext(table, "T");
+            {
+                var lastContext = GetTableContext(table, "T");
                 selectBuilder
-                    .SelectAll(secondContext)
-                    .InnerJoin(mainTableContext, secondContext, table.IdentityColumn.ColumnName, table.IdentityColumn.ColumnName);
+                    .SelectAll(lastContext)
+                    .InnerJoin(mainTableContext, lastContext, table.IdentityColumn.ColumnName, table.IdentityColumn.ColumnName);
             }
             foreach (var s in paths)
             {
@@ -81,7 +79,9 @@ namespace PTORMPrototype.Query
             var context = mainTableContext;
             foreach (var navigationField in fields)
             {
-                var navProperty = (NavigationPropertyMapping) currentType.GetProperty(navigationField);
+                string typeCast;
+                var field = FindTypeCast(navigationField, out typeCast);
+                var navProperty = (NavigationPropertyMapping)currentType.GetProperty(field);
                 if (navProperty.Table is PrimitiveListTable)
                 {
                     var listContext = GetTableContext(navProperty.Table, "S");
@@ -95,13 +95,10 @@ namespace PTORMPrototype.Query
                     };
                     break;
                 }                
-                
-                //todo: no primitive collections totally and no inheritance lookup
-                var targetType = navProperty.TargetType;
+                var targetType = navProperty.TargetType;                
                 var tableInfo = targetType.Tables.OfType<EntityTable>().First();
                 var nextcontext = GetTableContext(tableInfo, "S");
                 bulder.SelectAll(nextcontext);
-
                 if (navProperty.Host == ReferenceHost.Parent)
                 {
                     bulder.LeftOuterJoin(context, nextcontext, navProperty.ColumnName, tableInfo.IdentityColumn.ColumnName);
@@ -112,44 +109,102 @@ namespace PTORMPrototype.Query
                 }
                 else
                     throw new NotImplementedException();
+                var tables = new List<Table> { tableInfo };
+                if (typeCast != null)
+                {
+                    var castedType = _metaInfoProvider.GetTypeMapping(typeCast);
+                    var remainTables = castedType.Tables.OfType<EntityTable>().SkipWhile(z => z != tableInfo).Skip(1);                    
+                    foreach (var nextTable in remainTables)
+                    {
+                        var ctx = GetTableContext(nextTable, "S");
+                        bulder.SelectAll(ctx);
+                        bulder.InnerJoin(nextcontext, ctx, tableInfo.IdentityColumn.ColumnName,
+                            tableInfo.IdentityColumn.ColumnName);
+                        nextcontext = ctx;
+                        tables.Add(nextTable);
+                    }
+                    targetType = castedType;
+                }
+
                 yield return new SubTypePart
                 {
                     Type = targetType,
-                    Tables = new[] {tableInfo},
+                    Tables = tables,
                     CollectingType = currentType,
                     CollectingProperty = navProperty
                 };
                 currentType = targetType;
                 context = nextcontext;
             }
-        }
+        }        
 
         private void BuildSelectPredicate(SelectSqlBuilder builder, TableContext initialContext, TypeMappingInfo type, string s)
         {
-            var fields = s.Split('.');
-            var contexts = GetContexts(builder, type, initialContext, fields.Take(fields.Length - 1).ToList());
-            var searchField = fields.Last();
+            var fields = s.Split('.');            
+            var searchField = fields.Last();         
+            var entityTable = type.Tables.OfType<EntityTable>().Last();
+            var searchContext = GetTableContext(entityTable, initialContext.Table == entityTable ? "M" : "T");            
+
+            var contexts = GetContexts(builder, type, searchContext, fields.Take(fields.Length - 1).ToList());
+            
             var parameter = builder.GetNextParameter();
             var predicates = new List<string>();
             foreach (var contextTuple in contexts)
             {
-                var currentType = contextTuple.Item1;                
-                if (!currentType.HasProperty(searchField))
-                    continue;
+                var currentType = contextTuple.Item1;                                
                 var context = contextTuple.Item2;
-                var property = currentType.GetProperty(searchField);
-                var tbl = property.Table;
-                string predicate;
-                if (tbl is PrimitiveListTable)
+                if (currentType.HasProperty(searchField))
                 {
-                    predicate = PredicateForPrimitiveList(builder, tbl, context, parameter);
+                    var property = currentType.GetProperty(searchField);
+                    var tbl = property.Table;
+                    if (tbl == initialContext.Table)
+                        context = initialContext;
+                    string predicate;
+                    if (tbl is PrimitiveListTable)
+                    {
+                        predicate = PredicateForPrimitiveList(builder, tbl, context, parameter);
+                    }
+                    else
+                    {
+                        predicate = builder.GetEquality(context, property.ColumnName, parameter);
+                    }
+
+                    predicates.Add(predicate);
                 }
                 else
                 {
-                    predicate = builder.GetEquality(context, property.ColumnName, parameter);
+                    var branchNumber = 1;
+                    foreach (var childType in currentType.GetNearestChildrenThatHaveProperty(searchField))
+                    {
+                        var contextPrefix = context.Alias + "B" + branchNumber + "T";
+                        var childTablesLeft = childType.Tables.SkipWhile(z => z != context.Table).ToList();
+                        var previousContext = context;
+                        var property = childType.GetProperty(searchField);
+                        var tbl = property.Table;
+                        var tableContext = GetTableContext(tbl, contextPrefix);                                             
+                        foreach (var tableToJoin in childTablesLeft.Skip(1))
+                        {
+                            var currentContext = GetTableContext(tableToJoin, contextPrefix);
+                            builder.InnerJoin(previousContext, currentContext,
+                                ((EntityTable)previousContext.Table).IdentityColumn.ColumnName,
+                                ((EntityTable)currentContext.Table).IdentityColumn.ColumnName);
+                            previousContext = currentContext;
+                        }
+                        
+                        string predicate;
+                        if (tbl is PrimitiveListTable)
+                        {
+                            predicate = PredicateForPrimitiveList(builder, tbl, tableContext, parameter);
+                        }
+                        else
+                        {
+                            predicate = builder.GetEquality(tableContext, property.ColumnName, parameter);
+                        }
+
+                        predicates.Add(predicate);
+                        branchNumber++;
+                    }                    
                 }
-                
-                predicates.Add(predicate);
             }
             if (predicates.Count == 0)
                 throw new InvalidOperationException(string.Format("Wrong query, no types of {1} with field {0} found", s, type.Type));
@@ -157,7 +212,19 @@ namespace PTORMPrototype.Query
             builder.Where(builder.Or(predicates));
         }
 
-        private IEnumerable<Tuple<TypeMappingInfo, TableContext>> GetContexts(SelectSqlBuilder builder, TypeMappingInfo type, TableContext context, IList<string> properties)
+        private string FindTypeCast(string searchField, out string typeCast)
+        {
+            if (searchField.Contains('['))
+            {
+                var idx = searchField.IndexOf('[');
+                typeCast = searchField.Substring(idx + 1, searchField.IndexOf(']') - idx - 1);
+                return searchField.Substring(0, idx);
+            }
+            typeCast = null;
+            return searchField;
+        }
+
+        private IEnumerable<Tuple<TypeMappingInfo, TableContext>> GetContexts(SelectSqlBuilder builder, TypeMappingInfo type, TableContext context, IList<string> properties, string cast = null)
         {
             if (properties.Count == 0)
             {
@@ -165,12 +232,18 @@ namespace PTORMPrototype.Query
                 yield break;
             }
             var currentProperty = properties[0];
+
+            string typeCast;
+            currentProperty = FindTypeCast(currentProperty, out typeCast);
+
             var remainingProperties = properties.Skip(1).ToList();
             if (type.HasProperty(currentProperty))
             {
+                if (cast != null && type.Type.Name != cast)
+                    yield break;               
                 var prefix = context.Alias + "B0T";
-                var navProperty = (NavigationPropertyMapping) type.GetProperty(currentProperty);                
-                foreach (var tuple in GetContextFromType(builder, navProperty, prefix, context, remainingProperties))
+                var navProperty = (NavigationPropertyMapping) type.GetProperty(currentProperty);
+                foreach (var tuple in GetContextFromType(builder, navProperty, prefix, context, remainingProperties, typeCast))
                 {
                     yield return tuple;
                 }                
@@ -178,18 +251,20 @@ namespace PTORMPrototype.Query
             else
             {
                 var branchNumber = 1;
-                foreach (var childType in type.GetNearestChildrenThatHaveProperty(currentProperty))
+                foreach (var childType in type.GetNearestChildrenThatHaveProperty(currentProperty).Where(z => cast == null || cast == z.Type.Name))
                 {                    
                     var contextPrefix = context.Alias + "B" + branchNumber + "T";
                     var childTablesLeft = childType.Tables.SkipWhile(z => z != context.Table).ToList();
                     var baseChildTable = childTablesLeft[0];
                     var previousContext = GetTableContext(baseChildTable, contextPrefix);
+                    if(!_contextAliases.ContainsKey(baseChildTable.Name))
                     builder.LeftOuterJoin(context, previousContext,
                         ((EntityTable)context.Table).IdentityColumn.ColumnName,
                         ((EntityTable)previousContext.Table).IdentityColumn.ColumnName);
                     foreach (var tableToJoin in childTablesLeft.Skip(1))
                     {
                         var currentContext = GetTableContext(tableToJoin, contextPrefix);
+                        if (!_contextAliases.ContainsKey(tableToJoin.Name))
                         builder.InnerJoin(previousContext, currentContext,
                             ((EntityTable) previousContext.Table).IdentityColumn.ColumnName,
                             ((EntityTable) currentContext.Table).IdentityColumn.ColumnName);
@@ -198,18 +273,17 @@ namespace PTORMPrototype.Query
                     var navProperty = (NavigationPropertyMapping) childType.GetProperty(currentProperty);
                     foreach (
                         var tuple1 in
-                            GetContextFromType(builder, navProperty, contextPrefix, previousContext, remainingProperties)
+                            GetContextFromType(builder, navProperty, contextPrefix, previousContext, remainingProperties, typeCast)
                         )
                     {
-                        yield return tuple1;
+                       yield return tuple1;
                     }
                     branchNumber++;
                 }
             }
         }
 
-        private IEnumerable<Tuple<TypeMappingInfo, TableContext>> GetContextFromType(SelectSqlBuilder builder, NavigationPropertyMapping navProperty,
-            string contextPrefix, TableContext previousContext, List<string> remainingProperties)
+        private IEnumerable<Tuple<TypeMappingInfo, TableContext>> GetContextFromType(SelectSqlBuilder builder, NavigationPropertyMapping navProperty, string contextPrefix, TableContext previousContext, List<string> remainingProperties, string typeCast)
         {            
             var currentType = navProperty.TargetType;
             var tableInfo = currentType.Tables.OfType<EntityTable>().First();
@@ -223,7 +297,7 @@ namespace PTORMPrototype.Query
                 builder.InnerJoin(previousContext, tableContext, ((EntityTable) previousContext.Table).IdentityColumn.ColumnName,
                     navProperty.ColumnName);
             }
-            foreach (var tuple in GetContexts(builder, currentType, tableContext, remainingProperties))
+            foreach (var tuple in GetContexts(builder, currentType, tableContext, remainingProperties, typeCast))
             {
                 yield return tuple;
             }

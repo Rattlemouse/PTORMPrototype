@@ -183,9 +183,30 @@ namespace PTORTMTests
             {
                 "Child.DerivedProperty"
             });
-            Assert.AreEqual("SELECT [M1].* FROM [Parent] AS [M1] INNER JOIN [Child] AS [T1] ON [M1].[Child] = [T1].[ObjectId] INNER JOIN [ChildDerived] AS [T2] ON [T1].[ObjectId] = [T2].[ObjectId] WHERE [T2].[DerivedProperty] = @p0", plan.SqlString);
+            Assert.AreEqual("SELECT [M1].* FROM [Parent] AS [M1] INNER JOIN [Child] AS [M1B0T1] ON [M1].[Child] = [M1B0T1].[ObjectId] INNER JOIN [ChildDerived] AS [M1B0T1B1T1] ON [M1B0T1].[ObjectId] = [M1B0T1B1T1].[ObjectId] WHERE [M1B0T1B1T1].[DerivedProperty] = @p0", plan.SqlString);
             Assert.AreEqual(1, plan.SelectClause.Parts.OfType<TypePart>().Count());
-            Assert.IsTrue(plan.SelectClause.Parts.OfType<TypePart>().All(z => z.Tables.Count == 2));
+            Assert.IsTrue(plan.SelectClause.Parts.OfType<TypePart>().All(z => z.Tables.Count == 1));
+        }
+
+        [Test]
+        public void TestQueryWithDerivedChildPropertyConcreteType()
+        {
+            var types = FluentConfiguration.Start()
+                .DefaultIdProperty(IdentityField)
+                .DefaultDiscriminatorColumnName(DefaultDiscriminator)
+                .AddType<Parent>(z => z.AllProperties())
+                .AddType<Child>(z => z.AllProperties())
+                .AddType<ChildDerived>(z => z.AllProperties())
+                .GenerateTypeMappings();
+            var provider = new TestProvider(types);
+            var queryBuilder = new QueryBuilder(provider);
+            var plan = queryBuilder.GetQuery("Parent", new[]
+            {
+                "Child[ChildDerived].DerivedProperty"
+            });
+            Assert.AreEqual("SELECT [M1].* FROM [Parent] AS [M1] INNER JOIN [Child] AS [M1B0T1] ON [M1].[Child] = [M1B0T1].[ObjectId] INNER JOIN [ChildDerived] AS [M1B0T1B1T1] ON [M1B0T1].[ObjectId] = [M1B0T1B1T1].[ObjectId] WHERE [M1B0T1B1T1].[DerivedProperty] = @p0", plan.SqlString);
+            Assert.AreEqual(1, plan.SelectClause.Parts.OfType<TypePart>().Count());
+            Assert.IsTrue(plan.SelectClause.Parts.OfType<TypePart>().All(z => z.Tables.Count == 1));
         }
 
         [Test]
@@ -228,6 +249,30 @@ namespace PTORTMTests
             Assert.AreEqual(1, plan.SelectClause.Parts.OfType<SubTypePart>().Count());
             Assert.IsTrue(plan.SelectClause.Parts.OfType<TypePart>().All(z => z.Tables.Count == 1));
             Assert.IsTrue(plan.SelectClause.Parts.OfType<SubTypePart>().All(z => z.CollectingProperty.Name == "Nav"));
+        }
+
+
+        [Test]
+        public void TestIncludeWithInheritance()
+        {
+            var types = FluentConfiguration.Start()
+                .DefaultIdProperty(IdentityField)
+                .DefaultDiscriminatorColumnName(DefaultDiscriminator)
+                .AddTypeAuto<Parent>()
+                .AddTypeAuto<Child>()
+                .AddTypeAuto<ChildDerived>()                
+                .GenerateTypeMappings();
+            var provider = new TestProvider(types);
+            var queryBuilder = new QueryBuilder(provider);
+
+            var plan = queryBuilder.GetQuery("Parent", new string[0],  new[]
+            {
+                "Child[ChildDerived]"
+            });
+            Assert.AreEqual("SELECT [M1].*, [S1].*, [S2].* FROM [Parent] AS [M1] LEFT OUTER JOIN [Child] AS [S1] ON [M1].[Child] = [S1].[ObjectId] INNER JOIN [ChildDerived] AS [S2] ON [S1].[ObjectId] = [S2].[ObjectId]", plan.SqlString);
+            Assert.AreEqual(2, plan.SelectClause.Parts.OfType<TypePart>().Count());
+            Assert.AreEqual(1, plan.SelectClause.Parts.OfType<SubTypePart>().Count());            
+            Assert.IsTrue(plan.SelectClause.Parts.OfType<SubTypePart>().All(z => z.Tables.Count == 2));
         }
 
         [Test]

@@ -11,5 +11,6 @@ namespace PTORTMTests.TestClasses.Inheritance
     {
         public Guid ObjectId { get; set; }
         public string ParentProperty { get; set; }
+        public Child Child { get; set; }
     }
 }
