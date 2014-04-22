@@ -72,8 +72,11 @@ namespace PTORMPrototype.Mapping
                                 if (nav.Host == ReferenceHost.Parent)
                                 {
                                     var obj = type.GetProperty(parameter.Property.Name).GetValue(newObject);
-                                    value = obj.GetType().GetProperty(nav.TargetType.IdentityField).GetValue(obj);
-                                    InsertObject(connection, obj);
+                                    if (obj != null)
+                                    {
+                                        value = obj.GetType().GetProperty(nav.TargetType.IdentityField).GetValue(obj);
+                                        InsertObject(connection, obj);
+                                    }
                                 }
                                 else if(nav.Host == ReferenceHost.Child)
                                 {
@@ -103,7 +106,7 @@ namespace PTORMPrototype.Mapping
                         InsertObject(connection, obj, identity);
                     }
                 }
-                else
+                else if(innerObject != null)
                 {
                     InsertObject(connection, innerObject, identity);
                 }
